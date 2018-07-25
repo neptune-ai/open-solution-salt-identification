@@ -1,21 +1,394 @@
+from functools import partial
+import os
+from datetime import datetime, timedelta
+
 import numpy as np
 import torch
 from PIL import Image
 from deepsense import neptune
 from torch.autograd import Variable
-from functools import partial
+from torch.optim.lr_scheduler import ExponentialLR
 from tempfile import TemporaryDirectory
 
-from .steppy.base import Step, Dummy
-from .steppy.utils import get_logger
-from .steppy.pytorch.utils import save_model
-from .steppy.pytorch.callbacks import NeptuneMonitor, ValidationMonitor, ModelCheckpoint, EarlyStopping
+from steppy.base import Step, IdentityOperation
+from steppy.adapter import Adapter, E
+from toolkit.pytorch_transformers.utils import Averager, persist_torch_model
+from toolkit.pytorch_transformers.validation import score_model
 
 from . import postprocessing as post
-from .utils import sigmoid, softmax, make_apply_transformer, read_masks, get_list_of_image_predictions
+from .utils import get_logger, sigmoid, softmax, make_apply_transformer, read_masks, get_list_of_image_predictions
 from .metrics import intersection_over_union, intersection_over_union_thresholds
+from .pipeline_config import Y_COLUMNS, ORIGINAL_SIZE
+from .postprocessing import crop_image, resize_image, binary_label
 
 logger = get_logger()
+
+
+class Callback:
+    def __init__(self):
+        self.epoch_id = None
+        self.batch_id = None
+
+        self.model = None
+        self.optimizer = None
+        self.loss_function = None
+        self.output_names = None
+        self.validation_datagen = None
+        self.lr_scheduler = None
+
+    def set_params(self, transformer, validation_datagen, *args, **kwargs):
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+        self.output_names = transformer.output_names
+        self.validation_datagen = validation_datagen
+        self.transformer = transformer
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+
+    def on_train_end(self, *args, **kwargs):
+        pass
+
+    def on_epoch_begin(self, *args, **kwargs):
+        pass
+
+    def on_epoch_end(self, *args, **kwargs):
+        self.epoch_id += 1
+
+    def training_break(self, *args, **kwargs):
+        return False
+
+    def on_batch_begin(self, *args, **kwargs):
+        pass
+
+    def on_batch_end(self, *args, **kwargs):
+        self.batch_id += 1
+
+    def get_validation_loss(self):
+        if self.epoch_id not in self.transformer.validation_loss.keys():
+            self.transformer.validation_loss[self.epoch_id] = score_model(self.model, self.loss_function, self.validation_datagen)
+        return self.transformer.validation_loss[self.epoch_id]
+
+
+class CallbackList:
+    def __init__(self, callbacks=None):
+        if callbacks is None:
+            self.callbacks = []
+        elif isinstance(callbacks, Callback):
+            self.callbacks = [callbacks]
+        else:
+            self.callbacks = callbacks
+
+    def __len__(self):
+        return len(self.callbacks)
+
+    def set_params(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.set_params(*args, **kwargs)
+
+    def on_train_begin(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.on_train_begin(*args, **kwargs)
+
+    def on_train_end(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.on_train_end(*args, **kwargs)
+
+    def on_epoch_begin(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.on_epoch_begin(*args, **kwargs)
+
+    def on_epoch_end(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.on_epoch_end(*args, **kwargs)
+
+    def training_break(self, *args, **kwargs):
+        callback_out = [callback.training_break(*args, **kwargs) for callback in self.callbacks]
+        return any(callback_out)
+
+    def on_batch_begin(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.on_batch_begin(*args, **kwargs)
+
+    def on_batch_end(self, *args, **kwargs):
+        for callback in self.callbacks:
+            callback.on_batch_end(*args, **kwargs)
+
+
+class TrainingMonitor(Callback):
+    def __init__(self, epoch_every=None, batch_every=None):
+        super().__init__()
+        self.epoch_loss_averagers = {}
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+        if batch_every == 0:
+            self.batch_every = False
+        else:
+            self.batch_every = batch_every
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_loss_averagers = {}
+        self.epoch_id = 0
+        self.batch_id = 0
+
+    def on_epoch_end(self, *args, **kwargs):
+        for name, averager in self.epoch_loss_averagers.items():
+            epoch_avg_loss = averager.value
+            averager.reset()
+            if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
+                logger.info('epoch {0} {1}:     {2:.5f}'.format(self.epoch_id, name, epoch_avg_loss))
+        self.epoch_id += 1
+
+    def on_batch_end(self, metrics, *args, **kwargs):
+        for name, loss in metrics.items():
+            loss = loss.data.cpu().numpy()[0]
+            if name in self.epoch_loss_averagers.keys():
+                self.epoch_loss_averagers[name].send(loss)
+            else:
+                self.epoch_loss_averagers[name] = Averager()
+                self.epoch_loss_averagers[name].send(loss)
+
+            if self.batch_every and ((self.batch_id % self.batch_every) == 0):
+                logger.info('epoch {0} batch {1} {2}:     {3:.5f}'.format(self.epoch_id, self.batch_id, name, loss))
+        self.batch_id += 1
+
+
+class ValidationMonitor(Callback):
+    def __init__(self, epoch_every=None, batch_every=None):
+        super().__init__()
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+        if batch_every == 0:
+            self.batch_every = False
+        else:
+            self.batch_every = batch_every
+
+    def on_epoch_end(self, *args, **kwargs):
+        if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
+            self.model.eval()
+            val_loss = self.get_validation_loss()
+            self.model.train()
+            for name, loss in val_loss.items():
+                loss = loss.data.cpu().numpy()[0]
+                logger.info('epoch {0} validation {1}:     {2:.5f}'.format(self.epoch_id, name, loss))
+        self.epoch_id += 1
+
+
+class EarlyStopping(Callback):
+    def __init__(self, patience, minimize=True):
+        super().__init__()
+        self.patience = patience
+        self.minimize = minimize
+        self.best_score = None
+        self.epoch_since_best = 0
+        self._training_break = False
+
+    def on_epoch_end(self, *args, **kwargs):
+        self.model.eval()
+        val_loss = self.get_validation_loss()
+        loss_sum = val_loss['sum']
+        loss_sum = loss_sum.data.cpu().numpy()[0]
+
+        self.model.train()
+
+        if not self.best_score:
+            self.best_score = loss_sum
+
+        if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score):
+            self.best_score = loss_sum
+            self.epoch_since_best = 0
+        else:
+            self.epoch_since_best += 1
+
+        if self.epoch_since_best > self.patience:
+            self._training_break = True
+        self.epoch_id += 1
+
+    def training_break(self, *args, **kwargs):
+        return self._training_break
+
+
+class ExponentialLRScheduler(Callback):
+    def __init__(self, gamma, epoch_every=1, batch_every=None):
+        super().__init__()
+        self.gamma = gamma
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+        if batch_every == 0:
+            self.batch_every = False
+        else:
+            self.batch_every = batch_every
+
+    def set_params(self, transformer, validation_datagen, *args, **kwargs):
+        self.validation_datagen = validation_datagen
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+        self.lr_scheduler = ExponentialLR(self.optimizer, self.gamma, last_epoch=-1)
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+        logger.info('initial lr: {0}'.format(self.optimizer.state_dict()['param_groups'][0]['initial_lr']))
+
+    def on_epoch_end(self, *args, **kwargs):
+        if self.epoch_every and (((self.epoch_id + 1) % self.epoch_every) == 0):
+            self.lr_scheduler.step()
+            logger.info('epoch {0} current lr: {1}'.format(self.epoch_id + 1,
+                                                           self.optimizer.state_dict()['param_groups'][0]['lr']))
+        self.epoch_id += 1
+
+    def on_batch_end(self, *args, **kwargs):
+        if self.batch_every and ((self.batch_id % self.batch_every) == 0):
+            self.lr_scheduler.step()
+            logger.info('epoch {0} batch {1} current lr: {2}'.format(
+                self.epoch_id + 1, self.batch_id + 1, self.optimizer.state_dict()['param_groups'][0]['lr']))
+        self.batch_id += 1
+
+
+class ModelCheckpoint(Callback):
+    def __init__(self, filepath, epoch_every=1, minimize=True):
+        super().__init__()
+        self.filepath = filepath
+        self.minimize = minimize
+        self.best_score = None
+
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+        os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
+
+    def on_epoch_end(self, *args, **kwargs):
+        if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
+            self.model.eval()
+            val_loss = self.get_validation_loss()
+            loss_sum = val_loss['sum']
+            loss_sum = loss_sum.data.cpu().numpy()[0]
+
+            self.model.train()
+
+            if self.best_score is None:
+                self.best_score = loss_sum
+
+            if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
+                        self.epoch_id == 0):
+                self.best_score = loss_sum
+                save_model(self.model, self.filepath)
+                logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
+
+        self.epoch_id += 1
+
+
+class NeptuneMonitor(Callback):
+    def __init__(self, model_name):
+        super().__init__()
+        self.model_name = model_name
+        self.ctx = neptune.Context()
+        self.epoch_loss_averager = Averager()
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_loss_averagers = {}
+        self.epoch_id = 0
+        self.batch_id = 0
+
+    def on_batch_end(self, metrics, *args, **kwargs):
+        for name, loss in metrics.items():
+            loss = loss.data.cpu().numpy()[0]
+
+            if name in self.epoch_loss_averagers.keys():
+                self.epoch_loss_averagers[name].send(loss)
+            else:
+                self.epoch_loss_averagers[name] = Averager()
+                self.epoch_loss_averagers[name].send(loss)
+
+            self.ctx.channel_send('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
+
+        self.batch_id += 1
+
+    def on_epoch_end(self, *args, **kwargs):
+        self._send_numeric_channels()
+        self.epoch_id += 1
+
+    def _send_numeric_channels(self, *args, **kwargs):
+        for name, averager in self.epoch_loss_averagers.items():
+            epoch_avg_loss = averager.value
+            averager.reset()
+            self.ctx.channel_send('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id, y=epoch_avg_loss)
+
+        self.model.eval()
+        val_loss = self.get_validation_loss()
+        self.model.train()
+        for name, loss in val_loss.items():
+            loss = loss.data.cpu().numpy()[0]
+            self.ctx.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
+
+
+class ExperimentTiming(Callback):
+    def __init__(self, epoch_every=None, batch_every=None):
+        super().__init__()
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+        if batch_every == 0:
+            self.batch_every = False
+        else:
+            self.batch_every = batch_every
+        self.batch_start = None
+        self.epoch_start = None
+        self.current_sum = None
+        self.current_mean = None
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+        logger.info('starting training...')
+
+    def on_train_end(self, *args, **kwargs):
+        logger.info('training finished')
+
+    def on_epoch_begin(self, *args, **kwargs):
+        if self.epoch_id > 0:
+            epoch_time = datetime.now() - self.epoch_start
+            if self.epoch_every:
+                if (self.epoch_id % self.epoch_every) == 0:
+                    logger.info('epoch {0} time {1}'.format(self.epoch_id - 1, str(epoch_time)[:-7]))
+        self.epoch_start = datetime.now()
+        self.current_sum = timedelta()
+        self.current_mean = timedelta()
+        logger.info('epoch {0} ...'.format(self.epoch_id))
+
+    def on_batch_begin(self, *args, **kwargs):
+        if self.batch_id > 0:
+            current_delta = datetime.now() - self.batch_start
+            self.current_sum += current_delta
+            self.current_mean = self.current_sum / self.batch_id
+        if self.batch_every:
+            if self.batch_id > 0 and (((self.batch_id - 1) % self.batch_every) == 0):
+                logger.info('epoch {0} average batch time: {1}'.format(self.epoch_id, str(self.current_mean)[:-5]))
+        if self.batch_every:
+            if self.batch_id == 0 or self.batch_id % self.batch_every == 0:
+                logger.info('epoch {0} batch {1} ...'.format(self.epoch_id, self.batch_id))
+        self.batch_start = datetime.now()
+
+
+class ReduceLROnPlateau(Callback):  # thank you keras
+    def __init__(self):
+        super().__init__()
+        pass
 
 
 class NeptuneMonitorSegmentation(NeptuneMonitor):
@@ -88,9 +461,8 @@ class ValidationMonitorSegmentation(ValidationMonitor):
     def __init__(self, data_dir, loader_mode, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data_dir = data_dir
-        self.validation_pipeline = postprocessing__pipeline_simplified
+        self.validation_pipeline = postprocessing_pipeline_simplified
         self.loader_mode = loader_mode
-        self.validation_loss = None
         self.meta_valid = None
         self.y_true = None
         self.activation_func = None
@@ -102,9 +474,9 @@ class ValidationMonitorSegmentation(ValidationMonitor):
         self.output_names = transformer.output_names
         self.validation_datagen = validation_datagen
         self.meta_valid = meta_valid
-        self.validation_loss = transformer.validation_loss
-        self.y_true = read_masks(self.meta_valid[Y_COLUMNS_SCORING].values)
+        self.y_true = read_masks(self.meta_valid[Y_COLUMNS[0]].values)
         self.activation_func = transformer.activation_func
+        self.transformer = transformer
 
     def get_validation_loss(self):
         return self._get_validation_loss()
@@ -119,9 +491,12 @@ class ValidationMonitorSegmentation(ValidationMonitor):
         logger.info('IOU score on validation is {}'.format(iou_score))
         logger.info('IOUT score on validation is {}'.format(iout_score))
 
-        return self.validation_loss.setdefault(self.epoch_id, {'sum': epoch_loss,
-                                                               'iou': Variable(torch.Tensor([iou_score])),
-                                                               'iout': Variable(torch.Tensor([iout_score]))})
+        if not self.transformer.validation_loss:
+            self.transformer.validation_loss = {}
+        self.transformer.validation_loss.setdefault(self.epoch_id, {'sum': epoch_loss,
+                                                        'iou': Variable(torch.Tensor([iou_score])),
+                                                        'iout': Variable(torch.Tensor([iout_score]))})
+        return self.transformer.validation_loss[self.epoch_id]
 
     def _transform(self):
         self.model.eval()
@@ -150,7 +525,8 @@ class ValidationMonitorSegmentation(ValidationMonitor):
                 outputs.setdefault(self.output_names[0], []).append(outputs_batch.data.cpu().numpy())
             else:
                 batch_losses = []
-                for (name, loss_function_one, weight), output, target in zip(self.loss_function, outputs_batch, targets_var):
+                for (name, loss_function_one, weight), output, target in zip(self.loss_function, outputs_batch,
+                                                                             targets_var):
                     loss = loss_function_one(output, target) * weight
                     batch_losses.append(loss)
                     partial_batch_losses.setdefault(name, []).append(loss)
@@ -162,7 +538,8 @@ class ValidationMonitorSegmentation(ValidationMonitor):
                 break
         self.model.train()
         average_losses = sum(partial_batch_losses) / steps
-        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in outputs.items()}
+        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in
+                   outputs.items()}
         for name, prediction in outputs.items():
             if self.activation_func == 'softmax':
                 outputs[name] = [softmax(single_prediction, axis=0) for single_prediction in prediction]
@@ -176,12 +553,11 @@ class ValidationMonitorSegmentation(ValidationMonitor):
     def _generate_prediction(self, outputs):
         data = {'callback_input': {'meta': self.meta_valid,
                                    'meta_valid': None,
-                                   'target_sizes': self.meta_valid[SIZE_COLUMNS].values,
                                    },
                 'unet_output': {**outputs}
                 }
         with TemporaryDirectory() as cache_dirpath:
-            pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode, self.activation_func)
+            pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode)
             output = pipeline.transform(data)
         y_pred = output['y_pred']
 
@@ -206,9 +582,9 @@ class ModelCheckpointSegmentation(ModelCheckpoint):
                 self.best_score = loss_sum
 
             if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
-                    self.epoch_id == 0):
+                        self.epoch_id == 0):
                 self.best_score = loss_sum
-                save_model(self.model, self.filepath)
+                persist_torch_model(self.model, self.filepath)
                 logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
 
         self.epoch_id += 1
@@ -241,56 +617,37 @@ class EarlyStoppingSegmentation(EarlyStopping):
         self.epoch_id += 1
 
 
-def postprocessing__pipeline_simplified(cache_dirpath, loader_mode, activation_func):
+def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
     if loader_mode == 'crop_and_pad':
-        size_adjustment_function = post.crop_image
+        size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif loader_mode == 'resize':
-        size_adjustment_function = post.resize_image
+        size_adjustment_function = partial(resize_image, target_size=ORIGINAL_SIZE)
     else:
         raise NotImplementedError
-    channels = CHANNELS_SOFTMAX if activation_func == 'softmax' else CHANNELS_SIGMOID
 
     mask_resize = Step(name='mask_resize',
                        transformer=make_apply_transformer(size_adjustment_function,
                                                           output_name='resized_images',
-                                                          apply_on=['images', 'target_sizes']),
-                       input_data=['unet_output', 'callback_input'],
-                       adapter={'images': ([('unet_output', 'mask_prediction')]),
-                                'target_sizes': ([('callback_input', 'target_sizes')]),
-                                },
-                       cache_dirpath=cache_dirpath)
-
-    category_mapper = Step(name='category_mapper',
-                           transformer=make_apply_transformer(partial(post.categorize_image,
-                                                                      activation=activation_func),
-                                                              output_name='categorized_images'),
-                           input_steps=[mask_resize],
-                           adapter={'images': ([('mask_resize', 'resized_images')]),
-                                    },
-                           cache_dirpath=cache_dirpath)
+                                                          apply_on=['images']),
+                       input_data=['unet_output'],
+                       adapter=Adapter({'images': E('unet_output', 'mask_prediction'),
+                                        }),
+                       experiment_directory=cache_dirpath)
 
     labeler = Step(name='labeler',
-                   transformer=make_apply_transformer(post.label_multiclass_image,
-                                                      output_name='labeled_images'),
-                   input_steps=[category_mapper],
-                   adapter={'images': ([(category_mapper.name, 'categorized_images')]),
-                            },
-                   cache_dirpath=cache_dirpath)
-
-    nuclei_filter = Step(name='nuclei_filter',
-                         transformer=make_apply_transformer(partial(post.get_channel,
-                                                                    channel=channels.index('nuclei')),
-                                                            output_name='nuclei_images'),
-                         input_steps=[labeler],
-                         adapter={'images': ([('labeler', 'labeled_images')]),
-                                  },
-                         cache_dirpath=cache_dirpath)
+                   transformer=make_apply_transformer(binary_label,
+                                                      output_name='labeled_images',
+                                                      apply_on=['images']),
+                   input_steps=[mask_resize],
+                   adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                                    }),
+                   experiment_directory=cache_dirpath)
 
     output = Step(name='output',
-                  transformer=Dummy(),
-                  input_steps=[nuclei_filter],
-                  adapter={'y_pred': ([('nuclei_filter', 'nuclei_images')]),
-                           },
-                  cache_dirpath=cache_dirpath)
+                  transformer=IdentityOperation(),
+                  input_steps=[labeler],
+                  adapter=Adapter({'y_pred': E(labeler.name, 'labeled_images'),
+                                   }),
+                  experiment_directory=cache_dirpath)
 
     return output

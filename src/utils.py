@@ -22,7 +22,7 @@ import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
 
-neptune_config_path = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune_local.yaml')
+NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune_local.yaml')
 
 
 # Alex Martelli's 'Borg'
@@ -35,7 +35,7 @@ class _Borg:
 
 
 class NeptuneContext(_Borg):
-    def __init__(self, fallback_file=neptune_config_path):
+    def __init__(self, fallback_file=NEPTUNE_CONFIG_PATH):
         _Borg.__init__(self)
 
         self.ctx = neptune.Context()
@@ -56,15 +56,10 @@ class NeptuneContext(_Borg):
         return params
 
     def _read_yaml(self):
+        print(self.fallback_file)
         with open(self.fallback_file) as f:
             config = yaml.load(f)
         return AttrDict(config)
-
-
-def read_yaml(filepath):
-    with open(filepath) as f:
-        config = yaml.load(f)
-    return AttrDict(config)
 
 
 def init_logger():
@@ -107,7 +102,7 @@ def decompose(labeled):
 def create_submission(experiments_dir, meta, predictions, logger):
     image_ids, encodings = [], []
     output = []
-    for image_id, prediction in zip(meta['ImageId'].values, predictions):
+    for image_id, prediction in zip(meta['id'].values, predictions):
         for mask in decompose(prediction):
             rle_encoded = ' '.join(str(rle) for rle in run_length_encoding(mask > 128.))
             if len(rle_encoded) != 0:
@@ -118,8 +113,8 @@ def create_submission(experiments_dir, meta, predictions, logger):
                 logger.info('*** image_id {}'.format(image_id))
                 logger.info('*** rle_encoded {} is empty'.format(rle_encoded))
 
-    submission = pd.DataFrame(output, columns=['ImageId', 'EncodedPixels']).astype(str)
-    submission = submission[submission['EncodedPixels'] != 'nan']
+    submission = pd.DataFrame(output, columns=['id', 'rle_mask']).astype(str)
+    submission = submission[submission['rle_mask'] != 'nan']
     submission_filepath = os.path.join(experiments_dir, 'submission.csv')
     submission.to_csv(submission_filepath, index=None, encoding='utf-8')
     logger.info('submission saved to {}'.format(submission_filepath))
@@ -128,15 +123,9 @@ def create_submission(experiments_dir, meta, predictions, logger):
 
 def read_masks(masks_filepaths):
     masks = []
-    for mask_dir in tqdm(masks_filepaths):
-        mask = []
-        if len(mask_dir) == 1:
-            mask_dir = mask_dir[0]
-        for i, mask_filepath in enumerate(glob.glob('{}/*'.format(mask_dir))):
-            blob = np.asarray(Image.open(mask_filepath))
-            blob_binarized = (blob > 128.).astype(np.uint8) * (i + 1)
-            mask.append(blob_binarized)
-        mask = np.sum(np.stack(mask, axis=0), axis=0).astype(np.uint8)
+    for mask_filepath in tqdm(masks_filepaths):
+        mask = Image.open(mask_filepath)
+        mask = np.asarray(mask.convert('L').point(lambda x: 0 if x < 128 else 1)).astype(np.uint8)
         masks.append(mask)
     return masks
 
@@ -192,15 +181,6 @@ def run_length_decoding(mask_rle, shape):
     return img.reshape((shape[1], shape[0])).T
 
 
-def read_params(ctx):
-    if ctx.params.__class__.__name__ == 'OfflineContextParams':
-        neptune_config = read_yaml('neptune.yaml')
-        params = neptune_config.parameters
-    else:
-        params = ctx.params
-    return params
-
-
 def generate_metadata(train_images_dir, test_images_dir, depths_filepath):
     depths = pd.read_csv(depths_filepath)
 
@@ -229,13 +209,6 @@ def generate_metadata(train_images_dir, test_images_dir, depths_filepath):
         metadata.setdefault('z', []).append(depth)
 
     return pd.DataFrame(metadata)
-
-
-def squeeze_inputs_if_needed(inputs):
-    if isinstance(inputs[0], np.ndarray):
-        return np.squeeze(inputs[0], axis=1)
-    else:
-        return inputs[0]
 
 
 def sigmoid(x):
@@ -285,36 +258,6 @@ def softmax(X, theta=1.0, axis=None):
     if len(X.shape) == 1: p = p.flatten()
 
     return p
-
-
-def relabel(img):
-    h, w = img.shape
-
-    relabel_dict = {}
-
-    for i, k in enumerate(np.unique(img)):
-        if k == 0:
-            relabel_dict[k] = 0
-        else:
-            relabel_dict[k] = i
-    for i, j in product(range(h), range(w)):
-        img[i, j] = relabel_dict[img[i, j]]
-    return img
-
-
-def relabel_random_colors(img, max_colours=1000):
-    keys = list(range(1, max_colours, 1))
-    np.random.shuffle(keys)
-    values = list(range(1, max_colours, 1))
-    np.random.shuffle(values)
-    funky_dict = {k: v for k, v in zip(keys, values)}
-    funky_dict[0] = 0
-
-    h, w = img.shape
-
-    for i, j in product(range(h), range(w)):
-        img[i, j] = funky_dict[img[i, j]]
-    return img
 
 
 def from_pil(*images):

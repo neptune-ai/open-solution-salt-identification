@@ -14,22 +14,23 @@ from tqdm import tqdm
 import json
 from steppy.base import BaseTransformer
 
-from .augmentation import affine_seq, color_seq, crop_seq, pad_to_fit_net
-from .utils import from_pil, to_pil, binary_from_rle, ImgAug
+from .augmentation import affine_seq, color_seq_grey, crop_seq, pad_to_fit_net
+from .utils import from_pil, to_pil, binary_from_rle, ImgAug, reseed
 from .pipeline_config import MEAN, STD
 
 
 class ImageReader(BaseTransformer):
-    def __init__(self, x_columns, y_columns, target_format='png'):
+    def __init__(self, train_mode, x_columns, y_columns, target_format='png'):
+        self.train_mode = train_mode
         self.x_columns = x_columns
         self.y_columns = y_columns
         self.target_format = target_format
 
-    def transform(self, meta, train_mode):
+    def transform(self, meta):
         X_ = meta[self.x_columns].values
 
         X = self.load_images(X_, filetype='png', grayscale=False)
-        if train_mode:
+        if self.train_mode:
             y_ = meta[self.y_columns].values
             y = self.load_images(y_, filetype=self.target_format, grayscale=True)
         else:
@@ -58,26 +59,34 @@ class ImageReader(BaseTransformer):
         if not grayscale:
             image = image.convert('RGB')
         else:
-            image = image.convert('L')
+            image = image.convert('L').point(lambda x: 0 if x < 128 else 255, '1')
         return image
-
-    def load(self, filepath):
-        params = joblib.load(filepath)
-        self.columns_to_get = params['x_columns']
-        self.target_columns = params['y_columns']
-        return self
-
-    def save(self, filepath):
-        params = {'x_columns': self.x_columns,
-                  'y_columns': self.y_columns
-                  }
-        joblib.dump(params, filepath)
 
     def read_json(self, path):
         with open(path, 'r') as file:
             data = json.load(file)
         masks = [to_pil(binary_from_rle(rle)) for rle in data]
         return masks
+
+
+class XYSplit(BaseTransformer):
+    def __init__(self, train_mode, x_columns, y_columns):
+        self.train_mode = train_mode
+        super().__init__()
+        self.x_columns = x_columns
+        self.y_columns = y_columns
+        self.columns_to_get = None
+        self.target_columns = None
+
+    def transform(self, meta):
+        X = meta[self.x_columns[0]].values
+        if self.train_mode:
+            y = meta[self.y_columns[0]].values
+        else:
+            y = None
+
+        return {'X': X,
+                'y': y}
 
 
 class ImageSegmentationBaseDataset(Dataset):
@@ -119,7 +128,6 @@ class ImageSegmentationBaseDataset(Dataset):
 
         if self.y is not None:
             Mi = self.load_target(self.y, index, load_func)
-
             Xi, *Mi = from_pil(Xi, *Mi)
             Xi, *Mi = self.image_augment_with_target(Xi, *Mi)
             Xi = self.image_augment(Xi)
@@ -132,7 +140,6 @@ class ImageSegmentationBaseDataset(Dataset):
                 Xi = self.image_transform(Xi)
 
             Mi = torch.cat(Mi, dim=0)
-
             return Xi, Mi
         else:
             Xi = from_pil(Xi)
@@ -161,7 +168,7 @@ class ImageSegmentationBaseDataset(Dataset):
         if not grayscale:
             image = image.convert('RGB')
         else:
-            image = image.convert('L')
+            image = image.convert('L').point(lambda x: 0 if x < 128 else 1)
         return image
 
     def read_json(self, path):
@@ -184,7 +191,7 @@ class ImageSegmentationPngDataset(ImageSegmentationBaseDataset):
     def load_target(self, data_source, index, load_func):
         Mi = load_func(data_source, index, filetype='png', grayscale=True)
         Mi = from_pil(Mi)
-        target = [to_pil(Mi == class_nr) for class_nr in range(1, Mi.max() + 1)]
+        target = [to_pil(Mi == class_nr) for class_nr in [0, 1]]
         return target
 
 
@@ -219,8 +226,9 @@ class ImageSegmentationTTADataset(ImageSegmentationBaseDataset):
 
 
 class ImageSegmentationLoaderBasic(BaseTransformer):
-    def __init__(self, loader_params, dataset_params):
+    def __init__(self, train_mode, loader_params, dataset_params):
         super().__init__()
+        self.train_mode = train_mode
         self.loader_params = AttrDict(loader_params)
         self.dataset_params = AttrDict(dataset_params)
 
@@ -234,8 +242,8 @@ class ImageSegmentationLoaderBasic(BaseTransformer):
 
         self.dataset = None
 
-    def transform(self, X, y, X_valid=None, y_valid=None, train_mode=True):
-        if train_mode and y is not None:
+    def transform(self, X, y, X_valid=None, y_valid=None, **kwargs):
+        if self.train_mode and y is not None:
             flow, steps = self.get_datagen(X, y, True, self.loader_params.training)
         else:
             flow, steps = self.get_datagen(X, None, False, self.loader_params.inference)
@@ -245,6 +253,7 @@ class ImageSegmentationLoaderBasic(BaseTransformer):
         else:
             valid_flow = None
             valid_steps = None
+
         return {'datagen': (flow, steps),
                 'validation_datagen': (valid_flow, valid_steps)}
 
@@ -308,16 +317,17 @@ class ImageSegmentationLoaderBasicTTA(ImageSegmentationLoaderBasic):
 
 
 class ImageSegmentationLoaderCropPad(ImageSegmentationLoaderBasic):
-    def __init__(self, loader_params, dataset_params):
-        super().__init__(loader_params, dataset_params)
+    def __init__(self, train_mode, loader_params, dataset_params):
+        super().__init__(train_mode, loader_params, dataset_params)
 
-        self.image_transform = transforms.Compose([transforms.ToTensor(),
+        self.image_transform = transforms.Compose([transforms.Grayscale(num_output_channels=3),
+                                                   transforms.ToTensor(),
                                                    transforms.Normalize(mean=MEAN, std=STD),
                                                    ])
         self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
                                                   transforms.Lambda(to_tensor),
                                                   ])
-        self.image_augment_train = ImgAug(color_seq)
+        self.image_augment_train = ImgAug(color_seq_grey)
         self.image_augment_with_target_train = ImgAug(
             crop_seq(crop_size=(self.dataset_params.h, self.dataset_params.w)))
         self.image_augment_inference = ImgAug(
@@ -337,7 +347,8 @@ class ImageSegmentationLoaderCropPadTTA(ImageSegmentationLoaderBasicTTA):
     def __init__(self, loader_params, dataset_params):
         super().__init__(loader_params, dataset_params)
 
-        self.image_transform = transforms.Compose([transforms.ToTensor(),
+        self.image_transform = transforms.Compose([transforms.Grayscale(num_output_channels=3),
+                                                   transforms.ToTensor(),
                                                    transforms.Normalize(mean=MEAN, std=STD),
                                                    ])
         self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
@@ -353,10 +364,11 @@ class ImageSegmentationLoaderCropPadTTA(ImageSegmentationLoaderBasicTTA):
 
 
 class ImageSegmentationLoaderResize(ImageSegmentationLoaderBasic):
-    def __init__(self, loader_params, dataset_params):
-        super().__init__(loader_params, dataset_params)
+    def __init__(self, train_mode, loader_params, dataset_params):
+        super().__init__(train_mode, loader_params, dataset_params)
 
         self.image_transform = transforms.Compose([transforms.Resize((self.dataset_params.h, self.dataset_params.w)),
+                                                   transforms.Grayscale(num_output_channels=3),
                                                    transforms.ToTensor(),
                                                    transforms.Normalize(mean=MEAN, std=STD),
                                                    ])
@@ -365,7 +377,7 @@ class ImageSegmentationLoaderResize(ImageSegmentationLoaderBasic):
                                                   transforms.Lambda(to_array),
                                                   transforms.Lambda(to_tensor),
                                                   ])
-        self.image_augment_train = ImgAug(color_seq)
+        self.image_augment_train = ImgAug(color_seq_grey)
         self.image_augment_with_target_train = ImgAug(affine_seq)
 
         if self.dataset_params.target_format == 'png':
@@ -381,6 +393,7 @@ class ImageSegmentationLoaderResizeTTA(ImageSegmentationLoaderBasicTTA):
         super().__init__(loader_params, dataset_params)
 
         self.image_transform = transforms.Compose([transforms.Resize((self.dataset_params.h, self.dataset_params.w)),
+                                                   transforms.Grayscale(num_output_channels=3),
                                                    transforms.ToTensor(),
                                                    transforms.Normalize(mean=MEAN, std=STD),
                                                    ])
@@ -512,7 +525,7 @@ def test_time_augmentation_transform(image, tta_parameters):
     if tta_parameters['lr_flip']:
         image = np.fliplr(image)
     if tta_parameters['color_shift']:
-        random_color_shift = reseed(color_seq, deterministic=False)
+        random_color_shift = reseed(color_seq_grey, deterministic=False)
         image = random_color_shift.augment_image(image)
     image = rotate(image, tta_parameters['rotation'])
     return image

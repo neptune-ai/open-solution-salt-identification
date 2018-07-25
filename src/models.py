@@ -4,15 +4,10 @@ import torch.optim as optim
 from torch.autograd import Variable
 import torch.nn as nn
 from functools import partial
-
-from .steppy.pytorch.architectures.unet import UNet
-from .steppy.pytorch.callbacks import CallbackList, TrainingMonitor, ExperimentTiming, ExponentialLRScheduler
-from .steppy.pytorch.models import Model
-from .steppy.pytorch.validation import multiclass_segmentation_loss, DiceLoss, segmentation_loss
+from toolkit.pytorch_transformers.models import Model
 
 from .utils import sigmoid, softmax, get_list_of_image_predictions
-from .callbacks import NeptuneMonitorSegmentation, ValidationMonitorSegmentation, ModelCheckpointSegmentation, \
-    EarlyStoppingSegmentation
+from . import callbacks as cbk
 from .unet_models import AlbuNet, UNet11, UNetVGG16, UNetResNet
 
 PRETRAINED_NETWORKS = {'VGG11': {'model': UNet11,
@@ -80,6 +75,38 @@ class PyTorchUNet(Model):
         self.callbacks.on_train_end()
         return self
 
+    def _fit_loop(self, data):
+        X = data[0]
+        targets_tensors = data[1:]
+
+        if torch.cuda.is_available():
+            X = Variable(X).cuda()
+            targets_var = []
+            for target_tensor in targets_tensors:
+                targets_var.append(Variable(target_tensor).cuda())
+        else:
+            X = Variable(X)
+            targets_var = []
+            for target_tensor in targets_tensors:
+                targets_var.append(Variable(target_tensor))
+
+        self.optimizer.zero_grad()
+        outputs_batch = self.model(X)
+        partial_batch_losses = {}
+
+        if len(self.output_names) == 1:
+            for (name, loss_function, weight), target in zip(self.loss_function, targets_var):
+                batch_loss = loss_function(outputs_batch, target) * weight
+        else:
+            for (name, loss_function, weight), output, target in zip(self.loss_function, outputs_batch, targets_var):
+                partial_batch_losses[name] = loss_function(output, target) * weight
+            batch_loss = sum(partial_batch_losses.values())
+        partial_batch_losses['sum'] = batch_loss
+        batch_loss.backward()
+        self.optimizer.step()
+
+        return partial_batch_losses
+
     def transform(self, datagen, validation_datagen=None, *args, **kwargs):
         outputs = self._transform(datagen, validation_datagen)
         for name, prediction in outputs.items():
@@ -91,7 +118,7 @@ class PyTorchUNet(Model):
                 raise Exception('Only softmax and sigmoid activations are allowed')
         return outputs
 
-    def _transform(self, datagen, validation_datagen=None):
+    def _transform(self, datagen, validation_datagen=None, **kwargs):
         self.model.eval()
 
         batch_gen, steps = datagen
@@ -116,18 +143,16 @@ class PyTorchUNet(Model):
             if batch_id == steps:
                 break
         self.model.train()
-        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in outputs.items()}
+        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in
+                   outputs.items()}
         return outputs
 
     def set_model(self):
         encoder = self.architecture_config['model_params']['encoder']
-        if encoder == 'from_scratch':
-            self.model = UNet(**self.architecture_config['model_params'])
-        else:
-            config = PRETRAINED_NETWORKS[encoder]
-            self.model = config['model'](num_classes=self.architecture_config['model_params']['out_channels'],
-                                         **config['model_config'])
-            self._initialize_model_weights = lambda: None
+        config = PRETRAINED_NETWORKS[encoder]
+        self.model = config['model'](num_classes=self.architecture_config['model_params']['out_channels'],
+                                     **config['model_config'])
+        self._initialize_model_weights = lambda: None
 
     def set_loss(self):
         if self.activation_func == 'softmax':
@@ -143,6 +168,20 @@ class PyTorchUNet(Model):
         else:
             raise Exception('Only softmax and sigmoid activations are allowed')
         self.loss_function = [('mask', loss_function, 1.0)]
+
+    def load(self, filepath):
+        self.model.eval()
+
+        if not isinstance(self.model, nn.DataParallel):
+            self.model = nn.DataParallel(self.model)
+
+        if torch.cuda.is_available():
+            self.model.cpu()
+            self.model.load_state_dict(torch.load(filepath))
+            self.model = self.model.cuda()
+        else:
+            self.model.load_state_dict(torch.load(filepath, map_location=lambda storage, loc: storage))
+        return self
 
 
 def weight_regularization(model, regularize, weight_decay_conv2d, weight_decay_linear):
@@ -165,17 +204,28 @@ def weight_regularization_unet(model, regularize, weight_decay_conv2d):
 
 
 def callbacks_unet(callbacks_config):
-    experiment_timing = ExperimentTiming(**callbacks_config['experiment_timing'])
-    model_checkpoints = ModelCheckpointSegmentation(**callbacks_config['model_checkpoint'])
-    lr_scheduler = ExponentialLRScheduler(**callbacks_config['lr_scheduler'])
-    training_monitor = TrainingMonitor(**callbacks_config['training_monitor'])
-    validation_monitor = ValidationMonitorSegmentation(**callbacks_config['validation_monitor'])
-    neptune_monitor = NeptuneMonitorSegmentation(**callbacks_config['neptune_monitor'])
-    early_stopping = EarlyStoppingSegmentation(**callbacks_config['early_stopping'])
+    experiment_timing = cbk.ExperimentTiming(**callbacks_config['experiment_timing'])
+    model_checkpoints = cbk.ModelCheckpointSegmentation(**callbacks_config['model_checkpoint'])
+    lr_scheduler = cbk.ExponentialLRScheduler(**callbacks_config['lr_scheduler'])
+    training_monitor = cbk.TrainingMonitor(**callbacks_config['training_monitor'])
+    validation_monitor = cbk.ValidationMonitorSegmentation(**callbacks_config['validation_monitor'])
+    neptune_monitor = cbk.NeptuneMonitorSegmentation(**callbacks_config['neptune_monitor'])
+    early_stopping = cbk.EarlyStoppingSegmentation(**callbacks_config['early_stopping'])
 
-    return CallbackList(
+    return cbk.CallbackList(
         callbacks=[experiment_timing, training_monitor, validation_monitor,
                    model_checkpoints, lr_scheduler, neptune_monitor, early_stopping])
+
+
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=0, eps=1e-7):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
+        self.eps = eps
+
+    def forward(self, output, target):
+        return 1 - (2 * torch.sum(output * target) + self.smooth) / (
+            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
 def mixed_dice_cross_entropy_loss(output, target, dice_weight=0.5, dice_loss=None,
@@ -240,4 +290,4 @@ def mixed_dice_bce_loss(output, target, dice_weight=0.5, dice_loss=None,
 
 def where(cond, x_1, x_2):
     cond = cond.long()
-    return (cond * x_1) + ((1-cond) * x_2)
+    return (cond * x_1) + ((1 - cond) * x_2)

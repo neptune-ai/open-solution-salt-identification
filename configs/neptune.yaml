@@ -28,53 +28,48 @@ parameters:
   experiment_dir:             /path/to/work/dir
 
 # Execution
-  overwrite: 0
+  overwrite: 1
   num_workers: 4
-  num_threads: 1000
-  load_in_memory: 0
+  num_threads: 4
+  image_source: disk
   pin_memory: 1
-  competition_stage: 1
-  api_key: YOUR_CROWDAI_API_KEY
-  evaluation_data_sample: 1000
-  border_width: 0
-  small_annotations_size: 14
   loader_mode: resize
-  stream_mode: 0
+  pad_method: symmetric
+  target_format: 'png'
+  dev_mode_size: 20
+  n_cv_splits: 10
+  shuffle: 1
 
 # General parameters
-  image_h: 256
-  image_w: 256
+  image_h: 128
+  image_w: 128
   image_channels: 3
 
-# U-Net parameters (multi-output)
+# U-Net parameters
+  unet_output_channels: 2
+  unet_masks_output_channels: 2
+  unet_borders_output_channels: 3
+  unet_activation: 'softmax'
+  encoder: ResNet34
+
+# U-Net from scratch parameters
   nr_unet_outputs: 1
-  channels_per_output: 2
   n_filters: 16
   conv_kernel: 3
   pool_kernel: 3
   pool_stride: 2
   repeat_blocks: 4
-  encoder: ResNet101
-
-# U-Net loss weights (multi-output)
-  bce_mask: 1.0
-  dice_mask: 0.2
 
 # Training schedule
-  epochs_nr: 100
-  batch_size_train: 20
-  batch_size_inference: 20
+  epochs_nr: 10000
+  batch_size_train: 64
+  batch_size_inference: 64
   lr: 0.0005
   momentum: 0.9
-  gamma: 1.0
-  patience: 30
-  lr_factor: 0.3
-  lr_patience: 30
-  w0: 50
-  sigma: 10
-  dice_smooth: 1
-  dice_activation: 'softmax'
-  validate_with_map: 1
+  gamma: 0.99
+  patience: 100
+  validation_metric_name: 'sum'
+  minimize_validation_metric: 1
 
 # Regularization
   use_batch_norm: 1
@@ -84,43 +79,9 @@ parameters:
   dropout_dense: 0.0
 
 # Postprocessing
-  threshold: 0.5
-  erode_selem_size: 0
-  dilate_selem_size: 2
+  threshold_masks: 0.2
+  threshold_seeds: 0.6
+  threshold_borders: 0.2
+  min_mask_size: 20
+  min_seed_size: 15
   tta_aggregation_method: gmean
-  nms__iou_threshold: 0.5
-
-# Inference padding
-  crop_image_h: 300
-  crop_image_w: 300
-  h_pad: 10
-  w_pad: 10
-  pad_method: 'replicate'
-
-#Neptune monitor
-  unet_outputs_to_plot: '["multichannel_map",]'
-
-#Scoring model
-  scoring_model: 'lgbm'
-  scoring_model__num_training_examples: 10000
-
-#LightGBM
-  lgbm__learning_rate: 0.01
-  lgbm__num_leaves: 500
-  lgbm__min_data: 100
-  lgbm__max_depth: 20
-  lgbm__number_of_trees: 50000
-  lgbm__early_stopping: 10
-  lgbm__train_size: 0.7
-  lgbm__target: 'iou'
-
-#Random Forest
-  rf__n_estimators: 500
-  rf__criterion: "mse"
-  rf__max_depth: 20
-  rf__min_samples_split: 100
-  rf__min_samples_leaf: 100
-  rf__max_features: 'auto'
-  rf__max_leaf_nodes: 500
-  rf__n_jobs: 10
-  rf__verbose: 0

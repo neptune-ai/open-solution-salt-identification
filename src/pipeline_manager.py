@@ -4,7 +4,7 @@ import shutil
 import pandas as pd
 
 from .metrics import intersection_over_union, intersection_over_union_thresholds
-from .pipeline_config import SOLUTION_CONFIG, SEED, DEPTH_COLUMN
+from .pipeline_config import SOLUTION_CONFIG, SEED, DEPTH_COLUMN, Y_COLUMNS
 from .pipelines import PIPELINES
 from .utils import NeptuneContext, init_logger, read_masks, read_masks_from_csv, create_submission, \
     generate_metadata, set_seed, KFoldBySortedValue
@@ -56,10 +56,10 @@ def train(pipeline_name, dev_mode):
         meta_train_split = meta_train_split.sample(PARAMS.dev_mode_size, random_state=SEED)
         meta_valid_split = meta_valid_split.sample(int(PARAMS.dev_mode_size / 2), random_state=SEED)
 
-    data = {'input': {'meta': meta_train_split,
-                      'target_sizes': meta_train_split[SIZE_COLUMNS].values},
-            'specs': {'train_mode': True},
-            'callback_input': {'meta_valid': meta_valid_split}
+    data = {'input': {'meta': meta_train_split
+                      },
+            'callback_input': {'meta_valid': meta_valid_split
+                               }
             }
 
     pipeline = PIPELINES[pipeline_name]['train'](SOLUTION_CONFIG)
@@ -70,7 +70,7 @@ def train(pipeline_name, dev_mode):
 
 def evaluate(pipeline_name, dev_mode):
     LOGGER.info('evaluating')
-    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'stage1_metadata.csv'))
+    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
     meta_train = meta[meta['is_train'] == 1]
 
     cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
@@ -78,15 +78,15 @@ def evaluate(pipeline_name, dev_mode):
         break
 
     meta_valid_split = meta_train.iloc[valid_idx]
-    y_true = read_masks(meta_valid_split[Y_COLUMNS_SCORING].values)
+    y_true = read_masks(meta_valid_split[Y_COLUMNS[0]].values)
 
     if dev_mode:
         meta_valid_split = meta_valid_split.sample(PARAMS.dev_mode_size, random_state=SEED)
 
     data = {'input': {'meta': meta_valid_split,
-                      'target_sizes': meta_valid_split[SIZE_COLUMNS].values},
-            'specs': {'train_mode': False},
-            'callback_input': {'meta_valid': None}
+                      },
+            'callback_input': {'meta_valid': None
+                               }
             }
 
     pipeline = PIPELINES[pipeline_name]['inference'](SOLUTION_CONFIG)
@@ -107,17 +107,16 @@ def evaluate(pipeline_name, dev_mode):
 
 def predict(pipeline_name, dev_mode):
     LOGGER.info('predicting')
-    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'stage1_metadata.csv'))
+    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
     meta_test = meta[meta['is_train'] == 0]
 
     if dev_mode:
         meta_test = meta_test.sample(PARAMS.dev_mode_size, random_state=SEED)
 
     data = {'input': {'meta': meta_test,
-                      'meta_valid': None,
-                      'train_mode': False,
-                      'target_sizes': meta_test[SIZE_COLUMNS].values
                       },
+            'callback_input': {'meta_valid': None
+                               }
             }
 
     pipeline = PIPELINES[pipeline_name]['inference'](SOLUTION_CONFIG)

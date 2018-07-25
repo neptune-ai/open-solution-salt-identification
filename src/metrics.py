@@ -25,6 +25,8 @@ def compute_ious(gt, predictions):
         return np.zeros((1, 1))
     iscrowd = [0 for _ in predictions_]
     ious = cocomask.iou(gt_, predictions_, iscrowd)
+    if not ious:
+        ious = [[1.0]]
     return ious
 
 
@@ -48,9 +50,8 @@ def intersection_over_union(y_true, y_pred):
     ious = []
     for y_t, y_p in tqdm(list(zip(y_true, y_pred))):
         iou = compute_ious(y_t, y_p)
-        iou_mean = 1.0 * np.sum(iou) / iou.shape[0]
+        iou_mean = 1.0 * np.sum(iou) / len(iou)
         ious.append(iou_mean)
-
     return np.mean(ious)
 
 
