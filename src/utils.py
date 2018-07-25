@@ -97,7 +97,7 @@ def decompose(labeled):
         return masks
 
 
-def create_submission(experiments_dir, meta, predictions, logger):
+def create_submission(meta, predictions):
     output = []
     for image_id, prediction in zip(meta['id'].values, predictions):
         for mask in decompose(prediction):
@@ -105,10 +105,7 @@ def create_submission(experiments_dir, meta, predictions, logger):
             output.append([image_id, rle_encoded])
 
     submission = pd.DataFrame(output, columns=['id', 'rle_mask']).astype(str)
-    submission_filepath = os.path.join(experiments_dir, 'submission.csv')
-    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
-    logger.info('submission saved to {}'.format(submission_filepath))
-    logger.info('submission head \n\n{}'.format(submission.head()))
+    return submission
 
 
 def read_masks(masks_filepaths):

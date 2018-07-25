@@ -25,8 +25,8 @@ class PipelineManager():
     def evaluate(self, pipeline_name, dev_mode):
         evaluate(pipeline_name, dev_mode)
 
-    def predict(self, pipeline_name, dev_mode):
-        predict(pipeline_name, dev_mode)
+    def predict(self, pipeline_name, submit_predictions, dev_mode):
+        predict(pipeline_name, submit_predictions, dev_mode)
 
 
 def prepare_metadata():
@@ -104,7 +104,13 @@ def evaluate(pipeline_name, dev_mode):
     CTX.channel_send('IOUT', 0, iout_score)
 
 
-def predict(pipeline_name, dev_mode):
+def make_submission(submission_filepath):
+    LOGGER.info('Making Kaggle submit...')
+    os.system('kaggle competitions submit -c tgs-salt-identification-challenge -f {}'.format(submission_filepath))
+    LOGGER.info('Kaggle submit completed')
+
+
+def predict(pipeline_name, submit_predictions, dev_mode):
     LOGGER.info('predicting')
     meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
     meta_test = meta[meta['is_train'] == 0]
@@ -124,4 +130,13 @@ def predict(pipeline_name, dev_mode):
     pipeline.clean_cache()
     y_pred = output['y_pred']
 
-    create_submission(PARAMS.experiment_dir, meta_test, y_pred, LOGGER)
+    submission = create_submission(meta_test, y_pred)
+
+    submission_filepath = os.path.join(PARAMS.experiment_dir, 'submission.csv')
+
+    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
+    LOGGER.info('submission saved to {}'.format(submission_filepath))
+    LOGGER.info('submission head \n\n{}'.format(submission.head()))
+
+    if submit_predictions:
+        make_submission(submission_filepath)
