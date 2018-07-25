@@ -98,21 +98,13 @@ def decompose(labeled):
 
 
 def create_submission(experiments_dir, meta, predictions, logger):
-    image_ids, encodings = [], []
     output = []
     for image_id, prediction in zip(meta['id'].values, predictions):
         for mask in decompose(prediction):
             rle_encoded = ' '.join(str(rle) for rle in run_length_encoding(mask > 128.))
-            if len(rle_encoded) != 0:
-                image_ids.append(image_id)
-                encodings.append(rle_encoded)
-                output.append([image_id, rle_encoded])
-            else:
-                logger.info('*** image_id {}'.format(image_id))
-                logger.info('*** rle_encoded {} is empty'.format(rle_encoded))
+            output.append([image_id, rle_encoded])
 
     submission = pd.DataFrame(output, columns=['id', 'rle_mask']).astype(str)
-    submission = submission[submission['rle_mask'] != 'nan']
     submission_filepath = os.path.join(experiments_dir, 'submission.csv')
     submission.to_csv(submission_filepath, index=None, encoding='utf-8')
     logger.info('submission saved to {}'.format(submission_filepath))
