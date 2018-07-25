@@ -31,6 +31,7 @@ parameters:
   overwrite: 1
   num_workers: 4
   num_threads: 4
+  kaggle_message: 'solution-1'
   image_source: disk
   pin_memory: 1
   loader_mode: resize
