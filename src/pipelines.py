@@ -7,6 +7,7 @@ from . import loaders
 from .models import PyTorchUNet
 from .utils import make_apply_transformer
 from .postprocessing import crop_image, resize_image, binary_label, binarize
+from .pipeline_config import ORIGINAL_SIZE
 
 
 def unet(config, train_mode):
@@ -158,13 +159,6 @@ def preprocessing_inference(config, model_name='unet'):
 
 
 def preprocessing_inference_tta(config, model_name='unet'):
-    if config.execution.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPadTTA
-    elif config.execution.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResizeTTA
-    else:
-        raise NotImplementedError
-
     if config.loader.dataset_params.image_source == 'memory':
         reader_inference = Step(name='reader_inference',
                                 transformer=loaders.ImageReader(train_mode=False, **config.reader[model_name]),
@@ -193,6 +187,13 @@ def preprocessing_inference_tta(config, model_name='unet'):
     else:
         raise NotImplementedError
 
+    if config.execution.loader_mode == 'crop_and_pad':
+        Loader = loaders.ImageSegmentationLoaderCropPadTTA
+    elif config.execution.loader_mode == 'resize':
+        Loader = loaders.ImageSegmentationLoaderResizeTTA
+    else:
+        raise NotImplementedError
+
     loader = Step(name='loader',
                   transformer=Loader(**config.loader),
                   input_steps=[tta_generator],
@@ -218,13 +219,9 @@ def aggregator(name, model, tta_generator, experiment_directory, config):
 
 def mask_postprocessing(model, config):
     if config.execution.loader_mode == 'crop_and_pad':
-        size_adjustment_function = partial(crop_image,
-                                           target_size=(config.loader.dataset_params.h,
-                                                        config.loader.dataset_params.w))
+        size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif config.execution.loader_mode == 'resize':
-        size_adjustment_function = partial(resize_image,
-                                           target_size=(config.loader.dataset_params.h,
-                                                        config.loader.dataset_params.w))
+        size_adjustment_function = partial(resize_image, target_size=ORIGINAL_SIZE)
     else:
         raise NotImplementedError
 

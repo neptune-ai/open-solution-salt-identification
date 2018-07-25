@@ -88,7 +88,6 @@ def evaluate(pipeline_name, dev_mode):
             'callback_input': {'meta_valid': None
                                }
             }
-
     pipeline = PIPELINES[pipeline_name]['inference'](SOLUTION_CONFIG)
     pipeline.clean_cache()
     output = pipeline.transform(data)

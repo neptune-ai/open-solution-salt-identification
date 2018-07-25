@@ -560,7 +560,6 @@ class ValidationMonitorSegmentation(ValidationMonitor):
             pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode)
             output = pipeline.transform(data)
         y_pred = output['y_pred']
-
         return y_pred
 
 

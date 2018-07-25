@@ -291,7 +291,18 @@ class ImageSegmentationLoaderBasic(BaseTransformer):
 
 class ImageSegmentationLoaderBasicTTA(ImageSegmentationLoaderBasic):
     def __init__(self, loader_params, dataset_params):
-        super().__init__(loader_params, dataset_params)
+        self.loader_params = AttrDict(loader_params)
+        self.dataset_params = AttrDict(dataset_params)
+
+        self.mask_transform = None
+        self.image_transform = None
+
+        self.image_augment_train = None
+        self.image_augment_inference = None
+        self.image_augment_with_target_train = None
+        self.image_augment_with_target_inference = None
+
+        self.dataset = None
 
     def transform(self, X, tta_params, **kwargs):
         flow, steps = self.get_datagen(X, tta_params, self.loader_params.inference)

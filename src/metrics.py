@@ -21,13 +21,15 @@ def iou(gt, pred):
 def compute_ious(gt, predictions):
     gt_ = get_segmentations(gt)
     predictions_ = get_segmentations(predictions)
+
     if len(predictions_) == 0:
         return np.zeros((1, 1))
-    iscrowd = [0 for _ in predictions_]
-    ious = cocomask.iou(gt_, predictions_, iscrowd)
-    if not np.array(ious).size:
-        ious = [[0.0]]
-    return ious
+    else:
+        iscrowd = [0 for _ in predictions_]
+        ious = cocomask.iou(gt_, predictions_, iscrowd)
+        if not np.array(ious).size:
+            ious = np.zeros((1, 1))
+        return ious
 
 
 def compute_precision_at(ious, threshold):

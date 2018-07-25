@@ -4,7 +4,7 @@ name: tgs_salt_identification_challenge
 tags: [solution-1]
 
 metric:
-  channel: 'Final Validation Score'
+  channel: 'IOUT'
   goal: maximize
 
 #Comment out if not in Cloud Environment
@@ -77,5 +77,5 @@ parameters:
   dropout_dense: 0.0
 
 # Postprocessing
-  threshold_masks: 0.2
-  tta_aggregation_method: gmean
+  threshold_masks: 0.3
+  tta_aggregation_method: mean
