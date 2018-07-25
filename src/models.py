@@ -228,8 +228,8 @@ class DiceLoss(nn.Module):
                 torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
-def mixed_dice_bce_loss(output, target, dice_weight=0.0, dice_loss=None,
-                        bce_weight=1.0, bce_loss=None,
+def mixed_dice_bce_loss(output, target, dice_weight=0.1, dice_loss=None,
+                        bce_weight=0.9, bce_loss=None,
                         smooth=0, dice_activation='sigmoid'):
     num_classes = output.size(1)
     target = target[:, :num_classes, :, :].long()

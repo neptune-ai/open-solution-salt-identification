@@ -98,11 +98,11 @@ def evaluate(pipeline_name, dev_mode):
     LOGGER.info('Calculating IOU and IOUT Scores')
     iou_score = intersection_over_union(y_true, y_pred)
     LOGGER.info('IOU score on validation is {}'.format(iou_score))
-    CTX.channel_send('IOU Score', 0, iou_score)
+    CTX.channel_send('IOU', 0, iou_score)
 
     iout_score = intersection_over_union_thresholds(y_true, y_pred)
     LOGGER.info('IOUT score on validation is {}'.format(iout_score))
-    CTX.channel_send('IOUT Score', 0, iout_score)
+    CTX.channel_send('IOUT', 0, iout_score)
 
 
 def predict(pipeline_name, dev_mode):
