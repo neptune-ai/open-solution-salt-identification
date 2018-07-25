@@ -45,7 +45,7 @@ neptune run --config configs/neptune.yaml main.py train --pipeline_name unet
 
 ```bash
 neptune account login
-neptune run --config configs/neptune.yaml main.py evaluate_predict --pipeline_name unet_tta
+neptune run --config configs/neptune.yaml main.py evaluate_predict --pipeline_name unet
 ```
 
 :snake:
@@ -54,7 +54,7 @@ python main.py -- train--pipeline_name unet
 ```
 
 ```bash
-python main.py -- evaluate_predict --pipeline_name unet_tta
+python main.py -- evaluate_predict --pipeline_name unet
 ```
 
 ### Installation *(step by step)*
