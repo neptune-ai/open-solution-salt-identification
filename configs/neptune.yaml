@@ -37,7 +37,7 @@ parameters:
   pad_method: symmetric
   target_format: 'png'
   dev_mode_size: 20
-  n_cv_splits: 10
+  n_cv_splits: 20
   shuffle: 1
 
 # General parameters
@@ -47,9 +47,7 @@ parameters:
 
 # U-Net parameters
   unet_output_channels: 2
-  unet_masks_output_channels: 2
-  unet_borders_output_channels: 3
-  unet_activation: 'softmax'
+  unet_activation: 'sigmoid'
   encoder: ResNet34
 
 # U-Net from scratch parameters
@@ -64,12 +62,12 @@ parameters:
   epochs_nr: 10000
   batch_size_train: 64
   batch_size_inference: 64
-  lr: 0.0005
+  lr: 0.0001
   momentum: 0.9
-  gamma: 0.99
+  gamma: 1.0
   patience: 100
-  validation_metric_name: 'sum'
-  minimize_validation_metric: 1
+  validation_metric_name: 'iout'
+  minimize_validation_metric: 0
 
 # Regularization
   use_batch_norm: 1
@@ -80,8 +78,4 @@ parameters:
 
 # Postprocessing
   threshold_masks: 0.2
-  threshold_seeds: 0.6
-  threshold_borders: 0.2
-  min_mask_size: 20
-  min_seed_size: 15
   tta_aggregation_method: gmean

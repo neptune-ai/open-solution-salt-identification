@@ -225,7 +225,19 @@ class DiceLoss(nn.Module):
 
     def forward(self, output, target):
         return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+
+
+def mixed_dice_bce_loss(output, target, dice_weight=0.0, dice_loss=None,
+                        bce_weight=1.0, bce_loss=None,
+                        smooth=0, dice_activation='sigmoid'):
+    num_classes = output.size(1)
+    target = target[:, :num_classes, :, :].long()
+    if bce_loss is None:
+        bce_loss = nn.BCEWithLogitsLoss()
+    if dice_loss is None:
+        dice_loss = multiclass_dice_loss
+    return dice_weight * dice_loss(output, target, smooth, dice_activation) + bce_weight * bce_loss(output, target)
 
 
 def mixed_dice_cross_entropy_loss(output, target, dice_weight=0.5, dice_loss=None,
@@ -274,18 +286,6 @@ def multiclass_dice_loss(output, target, smooth=0, activation='softmax'):
     for class_nr in range(num_classes):
         loss += dice(output[:, class_nr, :, :], target[:, class_nr, :, :])
     return loss / num_classes
-
-
-def mixed_dice_bce_loss(output, target, dice_weight=0.5, dice_loss=None,
-                        bce_weight=0.5, bce_loss=None,
-                        smooth=0, dice_activation='sigmoid'):
-    num_classes = output.size(1)
-    target = target[:, :num_classes, :, :].long()
-    if bce_loss is None:
-        bce_loss = nn.BCEWithLogitsLoss()
-    if dice_loss is None:
-        dice_loss = multiclass_dice_loss
-    return dice_weight * dice_loss(output, target, smooth, dice_activation) + bce_weight * bce_loss(output, target)
 
 
 def where(cond, x_1, x_2):

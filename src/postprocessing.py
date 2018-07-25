@@ -1,3 +1,4 @@
+import numpy as np
 from scipy import ndimage as ndi
 from skimage.transform import resize
 
@@ -38,5 +39,10 @@ def crop_image(image, target_size):
 
 
 def binary_label(mask):
-    labeled, label_nr = ndi.label(mask[1, :, :])
+    labeled, label_nr = ndi.label(mask)
     return labeled
+
+
+def binarize(image, threshold):
+    image_binarized = (image[1, :, :] > threshold).astype(np.uint8)
+    return image_binarized

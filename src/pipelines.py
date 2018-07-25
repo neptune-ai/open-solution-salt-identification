@@ -6,7 +6,7 @@ from steppy.adapter import Adapter, E
 from . import loaders
 from .models import PyTorchUNet
 from .utils import make_apply_transformer
-from .postprocessing import crop_image, resize_image, binary_label
+from .postprocessing import crop_image, resize_image, binary_label, binarize
 
 
 def unet(config, train_mode):
@@ -237,12 +237,21 @@ def mask_postprocessing(model, config):
                                         }),
                        experiment_directory=config.env.experiment_dir)
 
+    binarizer = Step(name='binarizer',
+                     transformer=make_apply_transformer(partial(binarize, threshold=config.thresholder.threshold_masks),
+                                                        output_name='binarized_images',
+                                                        apply_on=['images']),
+                     input_steps=[mask_resize],
+                     adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                                      }),
+                     experiment_directory=config.env.experiment_dir)
+
     labeler = Step(name='labeler',
                    transformer=make_apply_transformer(binary_label,
                                                       output_name='labeled_images',
                                                       apply_on=['images']),
-                   input_steps=[mask_resize],
-                   adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                   input_steps=[binarizer],
+                   adapter=Adapter({'images': E(binarizer.name, 'binarized_images'),
                                     }),
                    experiment_directory=config.env.experiment_dir)
 

@@ -1,6 +1,5 @@
 import os
 
-from deepsense import neptune
 from attrdict import AttrDict
 
 from .utils import NeptuneContext
@@ -119,8 +118,4 @@ SOLUTION_CONFIG = AttrDict({
                        },
     'thresholder': {'threshold_masks': PARAMS.threshold_masks,
                     },
-    'watershed': {},
-    'dropper': {'min_mask_size': PARAMS.min_mask_size,
-                'min_seed_size': PARAMS.min_seed_size
-                },
 })

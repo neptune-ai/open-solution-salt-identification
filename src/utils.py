@@ -1,11 +1,10 @@
-import glob
 import logging
 import os
 import pathlib
 import random
 import sys
 import time
-from itertools import product, chain
+from itertools import chain
 from collections import Iterable
 
 from deepsense import neptune
@@ -56,7 +55,6 @@ class NeptuneContext(_Borg):
         return params
 
     def _read_yaml(self):
-        print(self.fallback_file)
         with open(self.fallback_file) as f:
             config = yaml.load(f)
         return AttrDict(config)

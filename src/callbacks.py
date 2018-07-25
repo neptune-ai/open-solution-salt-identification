@@ -15,11 +15,10 @@ from steppy.adapter import Adapter, E
 from toolkit.pytorch_transformers.utils import Averager, persist_torch_model
 from toolkit.pytorch_transformers.validation import score_model
 
-from . import postprocessing as post
 from .utils import get_logger, sigmoid, softmax, make_apply_transformer, read_masks, get_list_of_image_predictions
 from .metrics import intersection_over_union, intersection_over_union_thresholds
-from .pipeline_config import Y_COLUMNS, ORIGINAL_SIZE
-from .postprocessing import crop_image, resize_image, binary_label
+from .pipeline_config import Y_COLUMNS, ORIGINAL_SIZE, SOLUTION_CONFIG
+from .postprocessing import crop_image, resize_image, binary_label, binarize
 
 logger = get_logger()
 
@@ -68,7 +67,8 @@ class Callback:
 
     def get_validation_loss(self):
         if self.epoch_id not in self.transformer.validation_loss.keys():
-            self.transformer.validation_loss[self.epoch_id] = score_model(self.model, self.loss_function, self.validation_datagen)
+            self.transformer.validation_loss[self.epoch_id] = score_model(self.model, self.loss_function,
+                                                                          self.validation_datagen)
         return self.transformer.validation_loss[self.epoch_id]
 
 
@@ -284,7 +284,7 @@ class ModelCheckpoint(Callback):
                 self.best_score = loss_sum
 
             if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
-                        self.epoch_id == 0):
+                    self.epoch_id == 0):
                 self.best_score = loss_sum
                 save_model(self.model, self.filepath)
                 logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
@@ -494,8 +494,8 @@ class ValidationMonitorSegmentation(ValidationMonitor):
         if not self.transformer.validation_loss:
             self.transformer.validation_loss = {}
         self.transformer.validation_loss.setdefault(self.epoch_id, {'sum': epoch_loss,
-                                                        'iou': Variable(torch.Tensor([iou_score])),
-                                                        'iout': Variable(torch.Tensor([iout_score]))})
+                                                                    'iou': Variable(torch.Tensor([iou_score])),
+                                                                    'iout': Variable(torch.Tensor([iout_score]))})
         return self.transformer.validation_loss[self.epoch_id]
 
     def _transform(self):
@@ -582,7 +582,7 @@ class ModelCheckpointSegmentation(ModelCheckpoint):
                 self.best_score = loss_sum
 
             if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
-                        self.epoch_id == 0):
+                    self.epoch_id == 0):
                 self.best_score = loss_sum
                 persist_torch_model(self.model, self.filepath)
                 logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
@@ -634,12 +634,22 @@ def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
                                         }),
                        experiment_directory=cache_dirpath)
 
+    binarizer = Step(name='binarizer',
+                     transformer=make_apply_transformer(
+                         partial(binarize, threshold=SOLUTION_CONFIG.thresholder.threshold_masks),
+                         output_name='binarized_images',
+                         apply_on=['images']),
+                     input_steps=[mask_resize],
+                     adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                                      }),
+                     experiment_directory=cache_dirpath)
+
     labeler = Step(name='labeler',
                    transformer=make_apply_transformer(binary_label,
                                                       output_name='labeled_images',
                                                       apply_on=['images']),
-                   input_steps=[mask_resize],
-                   adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                   input_steps=[binarizer],
+                   adapter=Adapter({'images': E(binarizer.name, 'binarized_images'),
                                     }),
                    experiment_directory=cache_dirpath)
 

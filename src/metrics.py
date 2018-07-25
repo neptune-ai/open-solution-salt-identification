@@ -25,8 +25,8 @@ def compute_ious(gt, predictions):
         return np.zeros((1, 1))
     iscrowd = [0 for _ in predictions_]
     ious = cocomask.iou(gt_, predictions_, iscrowd)
-    if not ious:
-        ious = [[1.0]]
+    if not np.array(ious).size:
+        ious = [[0.0]]
     return ious
 
 
