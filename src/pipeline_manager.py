@@ -106,7 +106,8 @@ def evaluate(pipeline_name, dev_mode):
 
 def make_submission(submission_filepath):
     LOGGER.info('Making Kaggle submit...')
-    os.system('kaggle competitions submit -c tgs-salt-identification-challenge -f {}'.format(submission_filepath))
+    os.system('kaggle competitions submit -c tgs-salt-identification-challenge -f {} -m {}'.format(submission_filepath,
+                                                                                                   PARAMS.kaggle_message))
     LOGGER.info('Kaggle submit completed')
 
 
