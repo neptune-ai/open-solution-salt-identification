@@ -22,12 +22,13 @@ exclude:
 
 parameters:
 # Data Paths
-  data_dir:                   /path/to/data
-  meta_dir:                   /path/to/data
-  masks_overlayed_prefix: masks_overlayed
-  experiment_dir:             /path/to/work/dir
+  train_images_dir: /path/to/data
+  test_images_dir: /path/to/data
+  meta_dir: /path/to/data
+  depths_filepath: /path/to/data
+  experiment_dir: /path/to/work/dir
 
-# Execution
+  # Execution
   overwrite: 1
   num_workers: 4
   num_threads: 4
@@ -38,20 +39,20 @@ parameters:
   pad_method: symmetric
   target_format: 'png'
   dev_mode_size: 20
-  n_cv_splits: 20
+  n_cv_splits: 10
   shuffle: 1
 
-# General parameters
+  # General parameters
   image_h: 128
   image_w: 128
   image_channels: 3
 
-# U-Net parameters
+  # U-Net parameters
   unet_output_channels: 2
   unet_activation: 'sigmoid'
   encoder: ResNet34
 
-# U-Net from scratch parameters
+  # U-Net from scratch parameters
   nr_unet_outputs: 1
   n_filters: 16
   conv_kernel: 3
@@ -59,24 +60,24 @@ parameters:
   pool_stride: 2
   repeat_blocks: 4
 
-# Training schedule
+  # Training schedule
   epochs_nr: 10000
   batch_size_train: 64
   batch_size_inference: 64
   lr: 0.0001
   momentum: 0.9
   gamma: 1.0
-  patience: 100
+  patience: 20
   validation_metric_name: 'iout'
   minimize_validation_metric: 0
 
-# Regularization
+  # Regularization
   use_batch_norm: 1
   l2_reg_conv: 0.0001
   l2_reg_dense: 0.0
   dropout_conv: 0.1
   dropout_dense: 0.0
 
-# Postprocessing
-  threshold_masks: 0.3
+  # Postprocessing
+  threshold_masks: 0.5
   tta_aggregation_method: mean

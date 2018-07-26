@@ -21,7 +21,7 @@ import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
 
-NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune_local.yaml')
+NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune.yaml')
 
 
 # Alex Martelli's 'Borg'
