@@ -75,7 +75,9 @@ SOLUTION_CONFIG = AttrDict({
                                                      'out_channels': PARAMS.unet_output_channels,
                                                      'nr_outputs': PARAMS.nr_unet_outputs,
                                                      'encoder': PARAMS.encoder,
-                                                     'activation': PARAMS.unet_activation
+                                                     'activation': PARAMS.unet_activation,
+                                                     'dice_weight': PARAMS.dice_weight,
+                                                     'bce_weight': PARAMS.bce_weight,
                                                      },
                                     'optimizer_params': {'lr': PARAMS.lr,
                                                          },

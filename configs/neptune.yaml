@@ -38,7 +38,7 @@ parameters:
   pad_method: symmetric
   target_format: 'png'
   dev_mode_size: 20
-  n_cv_splits: 20
+  n_cv_splits: 10
   shuffle: 1
 
 # General parameters
@@ -58,6 +58,10 @@ parameters:
   pool_kernel: 3
   pool_stride: 2
   repeat_blocks: 4
+
+  # Loss
+  dice_weight: 0.2
+  bce_weight: 0.9
 
 # Training schedule
   epochs_nr: 10000
