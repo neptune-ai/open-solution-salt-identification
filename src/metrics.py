@@ -22,7 +22,9 @@ def compute_ious(gt, predictions):
     gt_ = get_segmentations(gt)
     predictions_ = get_segmentations(predictions)
 
-    if len(predictions_) == 0:
+    if len(gt_) == 0 and len(predictions_) == 0:
+        return np.ones((1, 1))
+    elif len(gt_) != 0 and len(predictions_) == 0:
         return np.zeros((1, 1))
     else:
         iscrowd = [0 for _ in predictions_]

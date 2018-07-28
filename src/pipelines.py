@@ -6,7 +6,7 @@ from steppy.adapter import Adapter, E
 from . import loaders
 from .models import PyTorchUNet
 from .utils import make_apply_transformer
-from .postprocessing import crop_image, resize_image, binary_label, binarize
+from .postprocessing import crop_image, resize_image, binarize
 from .pipeline_config import ORIGINAL_SIZE
 
 
@@ -35,7 +35,7 @@ def unet(config, train_mode):
     output = Step(name='output',
                   transformer=IdentityOperation(),
                   input_steps=[mask_postprocessed],
-                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'labeled_images'),
+                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'binarized_images'),
                                    }),
                   experiment_directory=config.env.experiment_dir)
     return output
@@ -68,7 +68,7 @@ def unet_tta(config):
     output = Step(name='output',
                   transformer=IdentityOperation(),
                   input_steps=[mask_postprocessed],
-                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'labeled_images')}),
+                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'binarized_images')}),
                   experiment_directory=config.env.experiment_dir)
 
     return output
@@ -243,16 +243,7 @@ def mask_postprocessing(model, config):
                                       }),
                      experiment_directory=config.env.experiment_dir)
 
-    labeler = Step(name='labeler',
-                   transformer=make_apply_transformer(binary_label,
-                                                      output_name='labeled_images',
-                                                      apply_on=['images']),
-                   input_steps=[binarizer],
-                   adapter=Adapter({'images': E(binarizer.name, 'binarized_images'),
-                                    }),
-                   experiment_directory=config.env.experiment_dir)
-
-    return labeler
+    return binarizer
 
 
 PIPELINES = {'unet': {'train': partial(unet, train_mode=True),

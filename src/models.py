@@ -161,7 +161,7 @@ class PyTorchUNet(Model):
                                     cross_entropy_loss=nn.CrossEntropyLoss(),
                                     dice_activation='softmax',
                                     dice_weight=self.architecture_config['model_params']['dice_weight'],
-                                    bce_weight=self.architecture_config['model_params']['bce_weight']
+                                    cross_entropy_weight=self.architecture_config['model_params']['bce_weight']
                                     )
         elif self.activation_func == 'sigmoid':
             loss_function = partial(mixed_dice_bce_loss,

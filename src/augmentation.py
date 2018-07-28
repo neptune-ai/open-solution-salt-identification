@@ -6,32 +6,19 @@ from .utils import get_crop_pad_sequence
 
 affine_seq = iaa.Sequential([
     # General
-    iaa.SomeOf((1, 2),
-               [iaa.Fliplr(0.5),
-                iaa.CropAndPad(percent=(-0.25, 0.25), pad_mode='symmetric')
-                ]),
+    iaa.Noop(),
+    # iaa.SomeOf((1, 2),
+    #            [iaa.Fliplr(0.5),
+    #             iaa.CropAndPad(percent=(-0.25, 0.25), pad_mode='symmetric')
+    #             ]),
 ], random_order=True)
 
 color_seq_grey = iaa.Sequential([
     # Color
-    iaa.Invert(0.3),
-    iaa.Sometimes(0.3, iaa.ContrastNormalization((0.5, 1.5))),
-    iaa.Sometimes(0.3, iaa.ElasticTransformation(alpha=(1, 5), sigma=0.1)),
     iaa.OneOf([
-        iaa.Noop(),
-        iaa.Sequential([
-            iaa.OneOf([
-                iaa.Add((0, 100)),
-                iaa.AddElementwise((0, 100)),
-                iaa.Multiply((0, 100)),
-                iaa.MultiplyElementwise((0, 100)),
-            ]),
-        ]),
-        iaa.OneOf([
-            iaa.GaussianBlur(sigma=(0.0, 8.0)),
-            iaa.AverageBlur(k=(2, 21)),
-            iaa.MedianBlur(k=(3, 15))
-        ])
+        iaa.GaussianBlur(sigma=(0.0, 8.0)),
+        iaa.AverageBlur(k=(2, 21)),
+        iaa.MedianBlur(k=(3, 15))
     ])
 ], random_order=False)
 

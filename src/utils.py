@@ -99,10 +99,9 @@ def decompose(labeled):
 
 def create_submission(meta, predictions):
     output = []
-    for image_id, prediction in zip(meta['id'].values, predictions):
-        for mask in decompose(prediction):
-            rle_encoded = ' '.join(str(rle) for rle in run_length_encoding(mask > 128.))
-            output.append([image_id, rle_encoded])
+    for image_id, mask in zip(meta['id'].values, predictions):
+        rle_encoded = ' '.join(str(rle) for rle in run_length_encoding(mask))
+        output.append([image_id, rle_encoded])
 
     submission = pd.DataFrame(output, columns=['id', 'rle_mask']).astype(str)
     return submission
