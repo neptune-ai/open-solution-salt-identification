@@ -9,7 +9,7 @@ from .metrics import intersection_over_union, intersection_over_union_thresholds
 from . import pipeline_config as cfg
 from .pipelines import PIPELINES
 from .utils import NeptuneContext, init_logger, read_masks, create_submission, \
-    generate_metadata, set_seed, KFoldBySortedValue
+    generate_metadata, set_seed, KFoldBySortedValue, clean_memory
 
 LOGGER = init_logger()
 CTX = NeptuneContext()

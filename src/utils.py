@@ -430,3 +430,8 @@ def plot_list(images=[], labels=[]):
         axs[n_img + j].set_xticks([])
         axs[n_img + j].set_yticks([])
     plt.show()
+
+
+def clean_memory():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
