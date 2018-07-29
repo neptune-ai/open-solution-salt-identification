@@ -8,7 +8,7 @@ from sklearn.externals import joblib
 from .metrics import intersection_over_union, intersection_over_union_thresholds
 from . import pipeline_config as cfg
 from .pipelines import PIPELINES
-from .utils import NeptuneContext, init_logger, read_masks, read_masks_from_csv, create_submission, \
+from .utils import NeptuneContext, init_logger, read_masks, create_submission, \
     generate_metadata, set_seed, KFoldBySortedValue
 
 LOGGER = init_logger()
