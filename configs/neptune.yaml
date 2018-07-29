@@ -28,18 +28,18 @@ parameters:
   depths_filepath: /path/to/data
   experiment_dir: /path/to/work/dir
 
-  # Execution
+ # Execution
   overwrite: 1
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-1'
+  kaggle_message: 'solution-2'
   image_source: disk
   pin_memory: 1
   loader_mode: resize
   pad_method: symmetric
   target_format: 'png'
   dev_mode_size: 20
-  n_cv_splits: 10
+  n_cv_splits: 5
   shuffle: 1
 
   # General parameters
@@ -50,7 +50,7 @@ parameters:
   # U-Net parameters
   unet_output_channels: 2
   unet_activation: 'sigmoid'
-  encoder: ResNet34
+  encoder: ResNet152
 
   # U-Net from scratch parameters
   nr_unet_outputs: 1
@@ -59,6 +59,10 @@ parameters:
   pool_kernel: 3
   pool_stride: 2
   repeat_blocks: 4
+
+  # Loss
+  dice_weight: 1.0
+  bce_weight: 1.0
 
   # Training schedule
   epochs_nr: 10000
