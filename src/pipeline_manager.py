@@ -3,6 +3,7 @@ import shutil
 
 import numpy as np
 import pandas as pd
+from sklearn.externals import joblib
 
 from .metrics import intersection_over_union, intersection_over_union_thresholds
 from . import pipeline_config as cfg
@@ -106,6 +107,10 @@ def evaluate(pipeline_name, dev_mode):
     iout_score = intersection_over_union_thresholds(y_true, y_pred)
     LOGGER.info('IOUT score on validation is {}'.format(iout_score))
     CTX.channel_send('IOUT', 0, iout_score)
+
+    results_filepath = os.path.join(PARAMS.experiment_dir, 'validation_results.pkl')
+    LOGGER.info('Saving validation results to {}'.format(results_filepath))
+    joblib.dump((meta_valid_split, y_true, y_pred), results_filepath)
 
 
 def make_submission(submission_filepath):

@@ -121,17 +121,12 @@ def read_masks(masks_filepaths):
     return masks
 
 
-def read_masks_from_csv(image_ids, solution_file_path):
-    solution = pd.read_csv(solution_file_path)
-    masks = []
-    for image_id in image_ids:
-        mask_shape = (solution[solution['ImageId'] == image_id]['Height'].iloc[0],
-                      solution[solution['ImageId'] == image_id]['Width'].iloc[0])
-        mask = np.zeros(mask_shape, dtype=np.uint8)
-        for i, rle in enumerate(solution[solution['ImageId'] == image_id]['EncodedPixels']):
-            mask += (i + 1) * run_length_decoding(rle, mask_shape)
-        masks.append(mask)
-    return masks
+def read_images(filepaths):
+    images = []
+    for filepath in filepaths:
+        image = np.array(Image.open(filepath))
+        images.append(image)
+    return images
 
 
 def run_length_encoding(x):
