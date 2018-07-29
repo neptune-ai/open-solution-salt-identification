@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
+import matplotlib.pyplot as plt
 from attrdict import AttrDict
 from tqdm import tqdm
 from pycocotools import mask as cocomask
@@ -105,6 +106,10 @@ def create_submission(meta, predictions):
 
     submission = pd.DataFrame(output, columns=['id', 'rle_mask']).astype(str)
     return submission
+
+
+def encode_rle(predictions):
+    return [run_length_encoding(mask) for mask in predictions]
 
 
 def read_masks(masks_filepaths):
@@ -414,3 +419,19 @@ class KFoldBySortedValue(BaseCrossValidator):
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_split
+
+
+def plot_list(images=[], labels=[]):
+    n_img = len(images)
+    n_lab = len(labels)
+    n = n_lab + n_img
+    fig, axs = plt.subplots(1, n, figsize=(16, 12))
+    for i, image in enumerate(images):
+        axs[i].imshow(image)
+        axs[i].set_xticks([])
+        axs[i].set_yticks([])
+    for j, label in enumerate(labels):
+        axs[n_img + j].imshow(label, cmap='nipy_spectral')
+        axs[n_img + j].set_xticks([])
+        axs[n_img + j].set_yticks([])
+    plt.show()

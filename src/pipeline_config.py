@@ -11,6 +11,7 @@ MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 SEED = 1234
 
+ID_COLUMNS = ['id']
 X_COLUMNS = ['file_path_image']
 Y_COLUMNS = ['file_path_mask']
 DEPTH_COLUMN = ['z']
