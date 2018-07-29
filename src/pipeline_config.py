@@ -112,10 +112,10 @@ SOLUTION_CONFIG = AttrDict({
             }
         },
     },
-    'tta_generator': {'flip_ud': True,
+    'tta_generator': {'flip_ud': False,
                       'flip_lr': True,
-                      'rotation': True,
-                      'color_shift_runs': False},
+                      'rotation': False,
+                      'color_shift_runs': 4},
     'tta_aggregator': {'method': PARAMS.tta_aggregation_method,
                        'nthreads': PARAMS.num_threads
                        },

@@ -14,7 +14,7 @@ from tqdm import tqdm
 import json
 from steppy.base import BaseTransformer
 
-from .augmentation import affine_seq, intesity_seq, crop_seq, pad_to_fit_net
+from .augmentation import affine_seq, intensity_seq, crop_seq, pad_to_fit_net
 from .utils import from_pil, to_pil, binary_from_rle, ImgAug, reseed
 from .pipeline_config import MEAN, STD
 
@@ -338,7 +338,7 @@ class ImageSegmentationLoaderCropPad(ImageSegmentationLoaderBasic):
         self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
                                                   transforms.Lambda(to_tensor),
                                                   ])
-        self.image_augment_train = ImgAug(intesity_seq)
+        self.image_augment_train = ImgAug(intensity_seq)
         self.image_augment_with_target_train = ImgAug(
             crop_seq(crop_size=(self.dataset_params.h, self.dataset_params.w)))
         self.image_augment_inference = ImgAug(
@@ -388,7 +388,7 @@ class ImageSegmentationLoaderResize(ImageSegmentationLoaderBasic):
                                                   transforms.Lambda(to_array),
                                                   transforms.Lambda(to_tensor),
                                                   ])
-        self.image_augment_train = ImgAug(intesity_seq)
+        self.image_augment_train = ImgAug(intensity_seq)
         self.image_augment_with_target_train = ImgAug(affine_seq)
 
         if self.dataset_params.target_format == 'png':
@@ -536,7 +536,7 @@ def test_time_augmentation_transform(image, tta_parameters):
     if tta_parameters['lr_flip']:
         image = np.fliplr(image)
     if tta_parameters['color_shift']:
-        random_color_shift = reseed(intesity_seq, deterministic=False)
+        random_color_shift = reseed(intensity_seq, deterministic=False)
         image = random_color_shift.augment_image(image)
     image = rotate(image, tta_parameters['rotation'])
     return image

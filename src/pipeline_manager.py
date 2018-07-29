@@ -50,15 +50,15 @@ def train(pipeline_name, dev_mode):
     meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
     meta_train = meta[meta['is_train'] == 1]
 
-    cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
-    for train_idx, valid_idx in cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1)):
+    cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=cfg.SEED)
+    for train_idx, valid_idx in cv.split(meta_train[cfg.DEPTH_COLUMN].values.reshape(-1)):
         break
 
     meta_train_split, meta_valid_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
     if dev_mode:
-        meta_train_split = meta_train_split.sample(PARAMS.dev_mode_size, random_state=SEED)
-        meta_valid_split = meta_valid_split.sample(int(PARAMS.dev_mode_size / 2), random_state=SEED)
+        meta_train_split = meta_train_split.sample(PARAMS.dev_mode_size, random_state=cfg.SEED)
+        meta_valid_split = meta_valid_split.sample(int(PARAMS.dev_mode_size / 2), random_state=cfg.SEED)
 
     data = {'input': {'meta': meta_train_split
                       },
@@ -77,15 +77,15 @@ def evaluate(pipeline_name, dev_mode):
     meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
     meta_train = meta[meta['is_train'] == 1]
 
-    cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
-    for train_idx, valid_idx in cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1)):
+    cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=cfg.SEED)
+    for train_idx, valid_idx in cv.split(meta_train[cfg.DEPTH_COLUMN].values.reshape(-1)):
         break
 
     meta_valid_split = meta_train.iloc[valid_idx]
     y_true = read_masks(meta_valid_split[cfg.Y_COLUMNS[0]].values)
 
     if dev_mode:
-        meta_valid_split = meta_valid_split.sample(PARAMS.dev_mode_size, random_state=SEED)
+        meta_valid_split = meta_valid_split.sample(PARAMS.dev_mode_size, random_state=cfg.SEED)
 
     data = {'input': {'meta': meta_valid_split,
                       },
