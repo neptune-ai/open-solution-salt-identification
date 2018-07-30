@@ -20,7 +20,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 # How to start?
 ## Learn about our solutions
 1. Check [Kaggle forum](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/61949) and participate in the discussions.
-1. Check our [Wiki pages](https://github.com/neptune-ml/open-solution-salt-detection/wiki), where we document our work. See solutions below:
+1. See solutions below:
 
 | link to code | CV | LB |
 |:---:|:---:|:---:|
@@ -54,9 +54,6 @@ python main.py -- train--pipeline_name unet
 ```bash
 python main.py -- evaluate_predict --pipeline_name unet
 ```
-
-### Installation *(step by step)*
-[Step by step installation :desktop_computer:](https://github.com/neptune-ml/open-solution-salt-detection/wiki/Step-by-step-installation)
 
 ## Get involved
 You are welcome to contribute your code and ideas to this open solution. To get started:
