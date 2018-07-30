@@ -27,7 +27,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 | link to code | name | CV | LB | link to description |
 |:---:|:---:|:---:|:---:|:---:|
 |[solution 1](https://github.com/neptune-ml/open-solution-salt-detection/tree/solution-1)|*chestnut* :chestnut:|0.413|0.745|[Vanilla Unet](https://github.com/neptune-ml/open-solution-salt-detection/wiki/TODO)|
-|solution 2|*four leaf clover* :four_leaf_clover:|||:construction_worker_woman: *in progress...*|
+|solution 2|*four leaf clover* :four_leaf_clover:|0.794|0.798|[Deeper unet with smart augmentations](https://github.com/neptune-ml/open-solution-salt-detection/wiki/TODO)||
 
 ## Start experimenting with ready-to-use code
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
