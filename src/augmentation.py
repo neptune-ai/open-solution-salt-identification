@@ -51,7 +51,7 @@ intensity_seq = iaa.Sequential([
         iaa.Sequential([
             iaa.OneOf([
                 iaa.Add((-30, 30)),
-                iaa.AddElementwise((-20, 20)),
+                iaa.AddElementwise((-30, 30)),
                 iaa.Multiply((0.9, 1.1)),
                 iaa.MultiplyElementwise((0.9, 1.1)),
             ]),

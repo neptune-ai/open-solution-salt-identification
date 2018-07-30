@@ -61,7 +61,7 @@ parameters:
   repeat_blocks: 4
 
   # Loss
-  dice_weight: 2.0
+  dice_weight: 5.0
   bce_weight: 1.0
 
   # Training schedule
