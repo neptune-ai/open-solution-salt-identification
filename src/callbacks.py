@@ -18,7 +18,7 @@ from toolkit.pytorch_transformers.validation import score_model
 from .utils import get_logger, sigmoid, softmax, make_apply_transformer, read_masks, get_list_of_image_predictions
 from .metrics import intersection_over_union, intersection_over_union_thresholds
 from .pipeline_config import Y_COLUMNS, ORIGINAL_SIZE, SOLUTION_CONFIG
-from .postprocessing import crop_image, resize_image, binary_label, binarize
+from .postprocessing import crop_image, resize_image, binarize
 
 logger = get_logger()
 
@@ -284,7 +284,7 @@ class ModelCheckpoint(Callback):
                 self.best_score = loss_sum
 
             if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
-                    self.epoch_id == 0):
+                        self.epoch_id == 0):
                 self.best_score = loss_sum
                 save_model(self.model, self.filepath)
                 logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
@@ -581,7 +581,7 @@ class ModelCheckpointSegmentation(ModelCheckpoint):
                 self.best_score = loss_sum
 
             if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
-                    self.epoch_id == 0):
+                        self.epoch_id == 0):
                 self.best_score = loss_sum
                 persist_torch_model(self.model, self.filepath)
                 logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
@@ -643,19 +643,10 @@ def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
                                       }),
                      experiment_directory=cache_dirpath)
 
-    labeler = Step(name='labeler',
-                   transformer=make_apply_transformer(binary_label,
-                                                      output_name='labeled_images',
-                                                      apply_on=['images']),
-                   input_steps=[binarizer],
-                   adapter=Adapter({'images': E(binarizer.name, 'binarized_images'),
-                                    }),
-                   experiment_directory=cache_dirpath)
-
     output = Step(name='output',
                   transformer=IdentityOperation(),
-                  input_steps=[labeler],
-                  adapter=Adapter({'y_pred': E(labeler.name, 'labeled_images'),
+                  input_steps=[binarizer],
+                  adapter=Adapter({'y_pred': E(binarizer.name, 'binarized_images'),
                                    }),
                   experiment_directory=cache_dirpath)
 

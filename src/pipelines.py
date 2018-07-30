@@ -6,17 +6,17 @@ from steppy.adapter import Adapter, E
 from . import loaders
 from .models import PyTorchUNet
 from .utils import make_apply_transformer
-from .postprocessing import crop_image, resize_image, binary_label, binarize
+from .postprocessing import crop_image, resize_image, binarize
 from .pipeline_config import ORIGINAL_SIZE
 
 
-def unet(config, train_mode):
+def unet(config, train_mode, suffix=''):
     if train_mode:
-        preprocessing = preprocessing_train(config, model_name='unet')
+        preprocessing = preprocessing_train(config, model_name='unet', suffix=suffix)
     else:
-        preprocessing = preprocessing_inference(config)
+        preprocessing = preprocessing_inference(config, suffix=suffix)
 
-    unet = Step(name='unet',
+    unet = Step(name='unet{}'.format(suffix),
                 transformer=PyTorchUNet(**config.model['unet']),
                 input_data=['callback_input'],
                 input_steps=[preprocessing],
@@ -30,51 +30,51 @@ def unet(config, train_mode):
     if train_mode:
         return unet
 
-    mask_postprocessed = mask_postprocessing(unet, config)
+    mask_postprocessed = mask_postprocessing(unet, config, suffix)
 
-    output = Step(name='output',
+    output = Step(name='output{}'.format(suffix),
                   transformer=IdentityOperation(),
                   input_steps=[mask_postprocessed],
-                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'labeled_images'),
+                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'binarized_images'),
                                    }),
                   experiment_directory=config.env.experiment_dir)
     return output
 
 
-def unet_tta(config):
+def unet_tta(config, train_mode=False, suffix=''):
     preprocessing, tta_generator = preprocessing_inference_tta(config, model_name='unet')
 
-    unet = Step(name='unet',
+    unet = Step(name='unet{}'.format(suffix),
                 transformer=PyTorchUNet(**config.model['unet']),
                 input_data=['callback_input'],
                 input_steps=[preprocessing],
                 is_trainable=True,
                 experiment_directory=config.env.experiment_dir)
 
-    tta_aggregator = aggregator('tta_aggregator', unet,
+    tta_aggregator = aggregator('tta_aggregator{}'.format(suffix), unet,
                                 tta_generator=tta_generator,
                                 experiment_directory=config.env.experiment_dir,
                                 config=config.tta_aggregator)
 
-    prediction_renamed = Step(name='prediction_renamed',
+    prediction_renamed = Step(name='prediction_renamed{}'.format(suffix),
                               transformer=IdentityOperation(),
                               input_steps=[tta_aggregator],
                               adapter=Adapter({'mask_prediction': E(tta_aggregator.name, 'aggregated_prediction')
                                                }),
                               experiment_directory=config.env.experiment_dir)
 
-    mask_postprocessed = mask_postprocessing(prediction_renamed, config)
+    mask_postprocessed = mask_postprocessing(prediction_renamed, config, suffix)
 
-    output = Step(name='output',
+    output = Step(name='output{}'.format(suffix),
                   transformer=IdentityOperation(),
                   input_steps=[mask_postprocessed],
-                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'labeled_images')}),
+                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'binarized_images')}),
                   experiment_directory=config.env.experiment_dir)
 
     return output
 
 
-def preprocessing_train(config, model_name='unet'):
+def preprocessing_train(config, model_name='unet', suffix=''):
     if config.execution.loader_mode == 'crop_and_pad':
         Loader = loaders.ImageSegmentationLoaderCropPad
     elif config.execution.loader_mode == 'resize':
@@ -83,26 +83,26 @@ def preprocessing_train(config, model_name='unet'):
         raise NotImplementedError
 
     if config.loader.dataset_params.image_source == 'memory':
-        reader_train = Step(name='reader_train',
+        reader_train = Step(name='reader_train{}'.format(suffix),
                             transformer=loaders.ImageReader(train_mode=True, **config.reader[model_name]),
                             input_data=['input'],
                             adapter=Adapter({'meta': E('input', 'meta')}),
                             experiment_directory=config.env.experiment_dir)
 
-        reader_inference = Step(name='reader_inference',
+        reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.ImageReader(train_mode=True, **config.reader[model_name]),
                                 input_data=['callback_input'],
                                 adapter=Adapter({'meta': E('callback_input', 'meta_valid')}),
                                 experiment_directory=config.env.experiment_dir)
 
     elif config.loader.dataset_params.image_source == 'disk':
-        reader_train = Step(name='xy_train',
+        reader_train = Step(name='xy_train{}'.format(suffix),
                             transformer=loaders.XYSplit(train_mode=True, **config.xy_splitter[model_name]),
                             input_data=['input'],
                             adapter=Adapter({'meta': E('input', 'meta')}),
                             experiment_directory=config.env.experiment_dir)
 
-        reader_inference = Step(name='xy_inference',
+        reader_inference = Step(name='xy_inference{}'.format(suffix),
                                 transformer=loaders.XYSplit(train_mode=True, **config.xy_splitter[model_name]),
                                 input_data=['callback_input'],
                                 adapter=Adapter({'meta': E('callback_input', 'meta_valid')}),
@@ -110,7 +110,7 @@ def preprocessing_train(config, model_name='unet'):
     else:
         raise NotImplementedError
 
-    loader = Step(name='loader',
+    loader = Step(name='loader{}'.format(suffix),
                   transformer=Loader(train_mode=True, **config.loader),
                   input_steps=[reader_train, reader_inference],
                   adapter=Adapter({'X': E(reader_train.name, 'X'),
@@ -122,7 +122,7 @@ def preprocessing_train(config, model_name='unet'):
     return loader
 
 
-def preprocessing_inference(config, model_name='unet'):
+def preprocessing_inference(config, model_name='unet', suffix=''):
     if config.execution.loader_mode == 'crop_and_pad':
         Loader = loaders.ImageSegmentationLoaderCropPad
     elif config.execution.loader_mode == 'resize':
@@ -131,7 +131,7 @@ def preprocessing_inference(config, model_name='unet'):
         raise NotImplementedError
 
     if config.loader.dataset_params.image_source == 'memory':
-        reader_inference = Step(name='reader_inference',
+        reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.ImageReader(train_mode=False, **config.reader[model_name]),
                                 input_data=['input'],
                                 adapter=Adapter({'meta': E('input', 'meta')}),
@@ -139,7 +139,7 @@ def preprocessing_inference(config, model_name='unet'):
                                 experiment_directory=config.env.experiment_dir)
 
     elif config.loader.dataset_params.image_source == 'disk':
-        reader_inference = Step(name='xy_inference',
+        reader_inference = Step(name='xy_inference{}'.format(suffix),
                                 transformer=loaders.XYSplit(train_mode=False, **config.xy_splitter[model_name]),
                                 input_data=['input'],
                                 adapter=Adapter({'meta': E('input', 'meta')}),
@@ -147,7 +147,7 @@ def preprocessing_inference(config, model_name='unet'):
     else:
         raise NotImplementedError
 
-    loader = Step(name='loader',
+    loader = Step(name='loader{}'.format(suffix),
                   transformer=Loader(train_mode=False, **config.loader),
                   input_steps=[reader_inference],
                   adapter=Adapter({'X': E(reader_inference.name, 'X'),
@@ -158,28 +158,28 @@ def preprocessing_inference(config, model_name='unet'):
     return loader
 
 
-def preprocessing_inference_tta(config, model_name='unet'):
+def preprocessing_inference_tta(config, model_name='unet', suffix=''):
     if config.loader.dataset_params.image_source == 'memory':
-        reader_inference = Step(name='reader_inference',
+        reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.ImageReader(train_mode=False, **config.reader[model_name]),
                                 input_data=['input'],
                                 adapter=Adapter({'meta': E('input', 'meta')}),
                                 experiment_directory=config.env.experiment_dir)
 
-        tta_generator = Step(name='tta_generator',
+        tta_generator = Step(name='tta_generator{}'.format(suffix),
                              transformer=loaders.TestTimeAugmentationGenerator(**config.tta_generator),
                              input_steps=[reader_inference],
                              adapter=Adapter({'X': E('reader_inference', 'X')}),
                              experiment_directory=config.env.experiment_dir)
 
     elif config.loader.dataset_params.image_source == 'disk':
-        reader_inference = Step(name='reader_inference',
+        reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.XYSplit(train_mode=False, **config.xy_splitter[model_name]),
                                 input_data=['input'],
                                 adapter=Adapter({'meta': E('input', 'meta')}),
                                 experiment_directory=config.env.experiment_dir)
 
-        tta_generator = Step(name='tta_generator',
+        tta_generator = Step(name='tta_generator{}'.format(suffix),
                              transformer=loaders.MetaTestTimeAugmentationGenerator(**config.tta_generator),
                              input_steps=[reader_inference],
                              adapter=Adapter({'X': E('reader_inference', 'X')}),
@@ -194,7 +194,7 @@ def preprocessing_inference_tta(config, model_name='unet'):
     else:
         raise NotImplementedError
 
-    loader = Step(name='loader',
+    loader = Step(name='loader{}'.format(suffix),
                   transformer=Loader(**config.loader),
                   input_steps=[tta_generator],
                   adapter=Adapter({'X': E(tta_generator.name, 'X_tta'),
@@ -217,7 +217,7 @@ def aggregator(name, model, tta_generator, experiment_directory, config):
     return tta_aggregator
 
 
-def mask_postprocessing(model, config):
+def mask_postprocessing(model, config, suffix=''):
     if config.execution.loader_mode == 'crop_and_pad':
         size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif config.execution.loader_mode == 'resize':
@@ -225,7 +225,7 @@ def mask_postprocessing(model, config):
     else:
         raise NotImplementedError
 
-    mask_resize = Step(name='mask_resize',
+    mask_resize = Step(name='mask_resize{}'.format(suffix),
                        transformer=make_apply_transformer(size_adjustment_function,
                                                           output_name='resized_images',
                                                           apply_on=['images']),
@@ -234,7 +234,7 @@ def mask_postprocessing(model, config):
                                         }),
                        experiment_directory=config.env.experiment_dir)
 
-    binarizer = Step(name='binarizer',
+    binarizer = Step(name='binarizer{}'.format(suffix),
                      transformer=make_apply_transformer(partial(binarize, threshold=config.thresholder.threshold_masks),
                                                         output_name='binarized_images',
                                                         apply_on=['images']),
@@ -243,21 +243,9 @@ def mask_postprocessing(model, config):
                                       }),
                      experiment_directory=config.env.experiment_dir)
 
-    labeler = Step(name='labeler',
-                   transformer=make_apply_transformer(binary_label,
-                                                      output_name='labeled_images',
-                                                      apply_on=['images']),
-                   input_steps=[binarizer],
-                   adapter=Adapter({'images': E(binarizer.name, 'binarized_images'),
-                                    }),
-                   experiment_directory=config.env.experiment_dir)
-
-    return labeler
+    return binarizer
 
 
-PIPELINES = {'unet': {'train': partial(unet, train_mode=True),
-                      'inference': partial(unet, train_mode=False),
-                      },
-             'unet_tta': {'inference': unet_tta,
-                          },
+PIPELINES = {'unet': unet,
+             'unet_tta': unet_tta
              }

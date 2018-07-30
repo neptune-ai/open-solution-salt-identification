@@ -159,12 +159,18 @@ class PyTorchUNet(Model):
             loss_function = partial(mixed_dice_cross_entropy_loss,
                                     dice_loss=multiclass_dice_loss,
                                     cross_entropy_loss=nn.CrossEntropyLoss(),
-                                    dice_activation='softmax')
+                                    dice_activation='softmax',
+                                    dice_weight=self.architecture_config['model_params']['dice_weight'],
+                                    cross_entropy_weight=self.architecture_config['model_params']['bce_weight']
+                                    )
         elif self.activation_func == 'sigmoid':
             loss_function = partial(mixed_dice_bce_loss,
                                     dice_loss=multiclass_dice_loss,
                                     bce_loss=nn.BCEWithLogitsLoss(),
-                                    dice_activation='sigmoid')
+                                    dice_activation='sigmoid',
+                                    dice_weight=self.architecture_config['model_params']['dice_weight'],
+                                    bce_weight=self.architecture_config['model_params']['bce_weight']
+                                    )
         else:
             raise Exception('Only softmax and sigmoid activations are allowed')
         self.loss_function = [('mask', loss_function, 1.0)]
@@ -228,7 +234,7 @@ class DiceLoss(nn.Module):
                 torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
-def mixed_dice_bce_loss(output, target, dice_weight=0.1, dice_loss=None,
+def mixed_dice_bce_loss(output, target, dice_weight=0.2, dice_loss=None,
                         bce_weight=0.9, bce_loss=None,
                         smooth=0, dice_activation='sigmoid'):
     num_classes = output.size(1)

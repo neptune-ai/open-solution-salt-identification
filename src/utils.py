@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
+import matplotlib.pyplot as plt
 from attrdict import AttrDict
 from tqdm import tqdm
 from pycocotools import mask as cocomask
@@ -99,13 +100,16 @@ def decompose(labeled):
 
 def create_submission(meta, predictions):
     output = []
-    for image_id, prediction in zip(meta['id'].values, predictions):
-        for mask in decompose(prediction):
-            rle_encoded = ' '.join(str(rle) for rle in run_length_encoding(mask > 128.))
-            output.append([image_id, rle_encoded])
+    for image_id, mask in zip(meta['id'].values, predictions):
+        rle_encoded = ' '.join(str(rle) for rle in run_length_encoding(mask))
+        output.append([image_id, rle_encoded])
 
     submission = pd.DataFrame(output, columns=['id', 'rle_mask']).astype(str)
     return submission
+
+
+def encode_rle(predictions):
+    return [run_length_encoding(mask) for mask in predictions]
 
 
 def read_masks(masks_filepaths):
@@ -117,17 +121,12 @@ def read_masks(masks_filepaths):
     return masks
 
 
-def read_masks_from_csv(image_ids, solution_file_path):
-    solution = pd.read_csv(solution_file_path)
-    masks = []
-    for image_id in image_ids:
-        mask_shape = (solution[solution['ImageId'] == image_id]['Height'].iloc[0],
-                      solution[solution['ImageId'] == image_id]['Width'].iloc[0])
-        mask = np.zeros(mask_shape, dtype=np.uint8)
-        for i, rle in enumerate(solution[solution['ImageId'] == image_id]['EncodedPixels']):
-            mask += (i + 1) * run_length_decoding(rle, mask_shape)
-        masks.append(mask)
-    return masks
+def read_images(filepaths):
+    images = []
+    for filepath in filepaths:
+        image = np.array(Image.open(filepath))
+        images.append(image)
+    return images
 
 
 def run_length_encoding(x):
@@ -415,3 +414,24 @@ class KFoldBySortedValue(BaseCrossValidator):
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_split
+
+
+def plot_list(images=[], labels=[]):
+    n_img = len(images)
+    n_lab = len(labels)
+    n = n_lab + n_img
+    fig, axs = plt.subplots(1, n, figsize=(16, 12))
+    for i, image in enumerate(images):
+        axs[i].imshow(image)
+        axs[i].set_xticks([])
+        axs[i].set_yticks([])
+    for j, label in enumerate(labels):
+        axs[n_img + j].imshow(label, cmap='nipy_spectral')
+        axs[n_img + j].set_xticks([])
+        axs[n_img + j].set_yticks([])
+    plt.show()
+
+
+def clean_memory():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
