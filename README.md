@@ -10,7 +10,8 @@ We are building entirely open solution to this competition. Specifically:
 1. Deliver open source solution with no strings attached. Code is available on our [GitHub repository :computer:](https://github.com/neptune-ml/open-solution-salt-detection). This solution should establish solid benchmark, as well as provide good base for your custom ideas and experiments. We care about clean code :smiley:
 1. We are opening our experiments as well: everybody can have **live preview** on our experiments, parameters, code, etc. Check: [TGS Salt Identification Challenge :chart_with_upwards_trend:](https://app.neptune.ml/neptune-ml/Salt-Detection) or screen below.
 
-| Train and validation monitor :bar_chart:|
+|Train and validation monitor :bar_chart:|
+|:---:|
 |![training monitor](https://gist.githubusercontent.com/jakubczakon/cac72983726a970690ba7c33708e100b/raw/b45dd02b6643a3805db42ab51a62293a2940c0be/neptune_salt.png)|
 
 ## Disclaimer
@@ -22,7 +23,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 1. Check our [Wiki pages](https://github.com/neptune-ml/open-solution-salt-detection/wiki), where we document our work. See solutions below:
 
 | link to code | CV | LB |
-|:---:|:---:|:---:|:---:|:---:|
+|:---:|:---:|:---:|
 |[solution 1](https://github.com/neptune-ml/open-solution-salt-detection/tree/solution-1)|0.413|0.745|
 |solution 2|0.794|0.798|
 
