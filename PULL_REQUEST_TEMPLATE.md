@@ -1,4 +1,4 @@
-## Pull Request template to the [Mapping Challenge](https://www.crowdai.org/challenges/mapping-challenge) Open Solution
+## Pull Request template to the [TGS Salt Identification](https://www.kaggle.com/c/tgs-salt-identification-challenge) Open Solution
 
 Major - and most appreciated - contribution is pull request with feature or bug fix. Each pull request initiates discussion about your code contribution.
 
