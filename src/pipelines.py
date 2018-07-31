@@ -77,12 +77,14 @@ def unet_tta(config, train_mode=False, suffix=''):
 def preprocessing_train(config, model_name='unet', suffix=''):
     if config.execution.loader_mode == 'crop_and_pad':
         Loader = loaders.ImageSegmentationLoaderCropPad
+        loader_config = config.loaders.crop_and_pad
     elif config.execution.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResize
+        loader_config = config.loaders.resize
     else:
         raise NotImplementedError
 
-    if config.loader.dataset_params.image_source == 'memory':
+    if loader_config.dataset_params.image_source == 'memory':
         reader_train = Step(name='reader_train{}'.format(suffix),
                             transformer=loaders.ImageReader(train_mode=True, **config.reader[model_name]),
                             input_data=['input'],
@@ -95,7 +97,7 @@ def preprocessing_train(config, model_name='unet', suffix=''):
                                 adapter=Adapter({'meta': E('callback_input', 'meta_valid')}),
                                 experiment_directory=config.env.experiment_dir)
 
-    elif config.loader.dataset_params.image_source == 'disk':
+    elif loader_config.dataset_params.image_source == 'disk':
         reader_train = Step(name='xy_train{}'.format(suffix),
                             transformer=loaders.XYSplit(train_mode=True, **config.xy_splitter[model_name]),
                             input_data=['input'],
@@ -111,7 +113,7 @@ def preprocessing_train(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(train_mode=True, **config.loader),
+                  transformer=Loader(train_mode=True, **loader_config),
                   input_steps=[reader_train, reader_inference],
                   adapter=Adapter({'X': E(reader_train.name, 'X'),
                                    'y': E(reader_train.name, 'y'),
@@ -125,12 +127,14 @@ def preprocessing_train(config, model_name='unet', suffix=''):
 def preprocessing_inference(config, model_name='unet', suffix=''):
     if config.execution.loader_mode == 'crop_and_pad':
         Loader = loaders.ImageSegmentationLoaderCropPad
+        loader_config = config.loaders.crop_and_pad
     elif config.execution.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResize
+        loader_config = config.loaders.crop_and_pad
     else:
         raise NotImplementedError
 
-    if config.loader.dataset_params.image_source == 'memory':
+    if loader_config.dataset_params.image_source == 'memory':
         reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.ImageReader(train_mode=False, **config.reader[model_name]),
                                 input_data=['input'],
@@ -138,7 +142,7 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
 
                                 experiment_directory=config.env.experiment_dir)
 
-    elif config.loader.dataset_params.image_source == 'disk':
+    elif loader_config.dataset_params.image_source == 'disk':
         reader_inference = Step(name='xy_inference{}'.format(suffix),
                                 transformer=loaders.XYSplit(train_mode=False, **config.xy_splitter[model_name]),
                                 input_data=['input'],
@@ -148,7 +152,7 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(train_mode=False, **config.loader),
+                  transformer=Loader(train_mode=False, **loader_config),
                   input_steps=[reader_inference],
                   adapter=Adapter({'X': E(reader_inference.name, 'X'),
                                    'y': E(reader_inference.name, 'y'),
@@ -189,13 +193,15 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
 
     if config.execution.loader_mode == 'crop_and_pad':
         Loader = loaders.ImageSegmentationLoaderCropPadTTA
+        loader_config = config.loader.crop_and_pad_tta
     elif config.execution.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResizeTTA
+        loader_config = config.loader.resize_tta
     else:
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(**config.loader),
+                  transformer=Loader(**loader_config),
                   input_steps=[tta_generator],
                   adapter=Adapter({'X': E(tta_generator.name, 'X_tta'),
                                    'tta_params': E(tta_generator.name, 'tta_params'),

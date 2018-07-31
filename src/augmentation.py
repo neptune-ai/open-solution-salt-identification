@@ -3,7 +3,7 @@ import numpy as np
 import imgaug as ia
 from imgaug import augmenters as iaa
 
-from .utils import get_crop_pad_sequence
+from .utils import get_crop_pad_sequence, reseed
 
 
 def _perspective_transform_augment_images(self, images, random_state, parents, hooks):
@@ -124,6 +124,53 @@ class PadFixed(iaa.Augmenter):
             return True
         else:
             return False
+
+
+def test_time_augmentation_transform(image, tta_parameters):
+    if tta_parameters['ud_flip']:
+        image = np.flipud(image)
+    if tta_parameters['lr_flip']:
+        image = np.fliplr(image)
+    if tta_parameters['color_shift']:
+        random_color_shift = reseed(intensity_seq, deterministic=False)
+        image = random_color_shift.augment_image(image)
+    image = rotate(image, tta_parameters['rotation'])
+    return image
+
+
+def test_time_augmentation_inverse_transform(image, tta_parameters):
+    image = per_channel_rotation(image.copy(), -1 * tta_parameters['rotation'])
+
+    if tta_parameters['lr_flip']:
+        image = per_channel_fliplr(image.copy())
+    if tta_parameters['ud_flip']:
+        image = per_channel_flipud(image.copy())
+    return image
+
+
+def per_channel_flipud(x):
+    x_ = x.copy()
+    for i, channel in enumerate(x):
+        x_[i, :, :] = np.flipud(channel)
+    return x_
+
+
+def per_channel_fliplr(x):
+    x_ = x.copy()
+    for i, channel in enumerate(x):
+        x_[i, :, :] = np.fliplr(channel)
+    return x_
+
+
+def per_channel_rotation(x, angle):
+    return rotate(x, angle, axes=(1, 2))
+
+
+def rotate(image, angle, axes=(0, 1)):
+    if angle % 90 != 0:
+        raise Exception('Angle must be a multiple of 90.')
+    k = angle // 90
+    return np.rot90(image, k, axes=axes)
 
 
 class RandomCropFixedSize(iaa.Augmenter):

@@ -242,6 +242,7 @@ class UNetVGG16(nn.Module):
                 Defaults to False.
 
     """
+
     def __init__(self, num_classes=1, num_filters=32, dropout_2d=0.2, pretrained=False, is_deconv=False):
         super().__init__()
         self.num_classes = num_classes
