@@ -23,17 +23,20 @@ PRETRAINED_NETWORKS = {'VGG11': {'model': UNet11,
                        'ResNet34': {'model': UNetResNet,
                                     'model_config': {'encoder_depth': 34,
                                                      'num_filters': 32, 'dropout_2d': 0.0,
-                                                     'pretrained': True, 'is_deconv': True, },
+                                                     'pretrained': True, 'is_deconv': True,
+                                                     },
                                     'init_weights': False},
                        'ResNet101': {'model': UNetResNet,
                                      'model_config': {'encoder_depth': 101,
                                                       'num_filters': 32, 'dropout_2d': 0.0,
-                                                      'pretrained': True, 'is_deconv': True, },
+                                                      'pretrained': True, 'is_deconv': True,
+                                                      },
                                      'init_weights': False},
                        'ResNet152': {'model': UNetResNet,
                                      'model_config': {'encoder_depth': 152,
-                                                      'num_filters': 32, 'dropout_2d': 0.0,
-                                                      'pretrained': True, 'is_deconv': True, },
+                                                      'num_filters': 32, 'dropout_2d': 0.2,
+                                                      'pretrained': True, 'is_deconv': True,
+                                                      },
                                      'init_weights': False}
                        }
 
@@ -44,7 +47,7 @@ class PyTorchUNet(Model):
         self.activation_func = self.architecture_config['model_params']['activation']
         self.set_model()
         self.set_loss()
-        self.weight_regularization = weight_regularization_unet
+        self.weight_regularization = weight_regularization
         self.optimizer = optim.Adam(self.weight_regularization(self.model, **architecture_config['regularizer_params']),
                                     **architecture_config['optimizer_params'])
         self.callbacks = callbacks_unet(self.callbacks_config)
@@ -154,6 +157,9 @@ class PyTorchUNet(Model):
                                      **config['model_config'])
         self._initialize_model_weights = lambda: None
 
+        # self.load(
+        #     '/mnt/ml-team/minerva/open-solutions/salt/kuba/experiments/resnets_frozen/checkpoints/unet/best.torch')
+
     def set_loss(self):
         if self.activation_func == 'softmax':
             loss_function = partial(mixed_dice_cross_entropy_loss,
@@ -190,22 +196,14 @@ class PyTorchUNet(Model):
         return self
 
 
-def weight_regularization(model, regularize, weight_decay_conv2d, weight_decay_linear):
+def weight_regularization(model, regularize, weight_decay_conv2d):
     if regularize:
-        parameter_list = [{'params': model.features.parameters(), 'weight_decay': weight_decay_conv2d},
-                          {'params': model.classifier.parameters(), 'weight_decay': weight_decay_linear},
-                          ]
+        parameter_list = [
+            {'params': filter(lambda p: p.requires_grad, model.parameters()),
+             'weight_decay': weight_decay_conv2d},
+        ]
     else:
-        parameter_list = [model.parameters()]
-    return parameter_list
-
-
-def weight_regularization_unet(model, regularize, weight_decay_conv2d):
-    if regularize:
-        parameter_list = [{'params': model.parameters(), 'weight_decay': weight_decay_conv2d},
-                          ]
-    else:
-        parameter_list = [model.parameters()]
+        parameter_list = [filter(lambda p: p.requires_grad, model.parameters())]
     return parameter_list
 
 

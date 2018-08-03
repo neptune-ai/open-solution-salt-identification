@@ -3,12 +3,15 @@ import os
 from attrdict import AttrDict
 
 from .utils import NeptuneContext
+from .augmentation import intensity_seq, affine_seq, pad_to_fit_net, crop_seq, test_time_augmentation_transform, \
+    test_time_augmentation_inverse_transform
 
 CTX = NeptuneContext()
 PARAMS = CTX.params
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
+
 SEED = 1234
 
 ID_COLUMNS = ['id']
@@ -44,25 +47,114 @@ SOLUTION_CONFIG = AttrDict({
                  'y_columns': Y_COLUMNS,
                  },
     },
-    'loader': {'dataset_params': {'h': PARAMS.image_h,
-                                  'w': PARAMS.image_w,
-                                  'pad_method': PARAMS.pad_method,
-                                  'image_source': PARAMS.image_source,
-                                  'divisor': 64,
-                                  'target_format': PARAMS.target_format
-                                  },
-               'loader_params': {'training': {'batch_size': PARAMS.batch_size_train,
-                                              'shuffle': True,
-                                              'num_workers': PARAMS.num_workers,
-                                              'pin_memory': PARAMS.pin_memory
-                                              },
-                                 'inference': {'batch_size': PARAMS.batch_size_inference,
-                                               'shuffle': False,
-                                               'num_workers': PARAMS.num_workers,
-                                               'pin_memory': PARAMS.pin_memory
-                                               },
+    'loaders': {'crop_and_pad': {'dataset_params': {'h': PARAMS.image_h,
+                                                    'w': PARAMS.image_w,
+                                                    'pad_method': PARAMS.pad_method,
+                                                    'image_source': PARAMS.image_source,
+                                                    'divisor': 64,
+                                                    'target_format': PARAMS.target_format,
+                                                    'MEAN': MEAN,
+                                                    'STD': STD
+                                                    },
+                                 'loader_params': {'training': {'batch_size': PARAMS.batch_size_train,
+                                                                'shuffle': True,
+                                                                'num_workers': PARAMS.num_workers,
+                                                                'pin_memory': PARAMS.pin_memory
+                                                                },
+                                                   'inference': {'batch_size': PARAMS.batch_size_inference,
+                                                                 'shuffle': False,
+                                                                 'num_workers': PARAMS.num_workers,
+                                                                 'pin_memory': PARAMS.pin_memory
+                                                                 },
+                                                   },
+
+                                 'augmentation_params': {'image_augment_train': intensity_seq,
+                                                         'image_augment_with_target_train': crop_seq(
+                                                             crop_size=(PARAMS.image_h, PARAMS.image_w)),
+                                                         'image_augment_inference': pad_to_fit_net(64,
+                                                                                                   PARAMS.pad_method),
+                                                         'image_augment_with_target_inference': pad_to_fit_net(64,
+                                                                                                               PARAMS.pad_method)
+                                                         },
                                  },
-               },
+                'crop_and_pad_tta': {'dataset_params': {'h': PARAMS.image_h,
+                                                        'w': PARAMS.image_w,
+                                                        'pad_method': PARAMS.pad_method,
+                                                        'image_source': PARAMS.image_source,
+                                                        'divisor': 64,
+                                                        'target_format': PARAMS.target_format,
+                                                        'MEAN': MEAN,
+                                                        'STD': STD
+                                                        },
+                                     'loader_params': {'training': {'batch_size': PARAMS.batch_size_train,
+                                                                    'shuffle': True,
+                                                                    'num_workers': PARAMS.num_workers,
+                                                                    'pin_memory': PARAMS.pin_memory
+                                                                    },
+                                                       'inference': {'batch_size': PARAMS.batch_size_inference,
+                                                                     'shuffle': False,
+                                                                     'num_workers': PARAMS.num_workers,
+                                                                     'pin_memory': PARAMS.pin_memory
+                                                                     },
+                                                       },
+
+                                     'augmentation_params': {
+                                         'image_augment_inference': pad_to_fit_net(64, PARAMS.pad_method),
+                                         'image_augment_with_target_inference': pad_to_fit_net(64,
+                                                                                               PARAMS.pad_method),
+                                         'tta_transform': test_time_augmentation_transform
+                                     },
+                                     },
+                'resize': {'dataset_params': {'h': PARAMS.image_h,
+                                              'w': PARAMS.image_w,
+                                              'pad_method': PARAMS.pad_method,
+                                              'image_source': PARAMS.image_source,
+                                              'divisor': 64,
+                                              'target_format': PARAMS.target_format,
+                                              'MEAN': MEAN,
+                                              'STD': STD
+                                              },
+                           'loader_params': {'training': {'batch_size': PARAMS.batch_size_train,
+                                                          'shuffle': True,
+                                                          'num_workers': PARAMS.num_workers,
+                                                          'pin_memory': PARAMS.pin_memory
+                                                          },
+                                             'inference': {'batch_size': PARAMS.batch_size_inference,
+                                                           'shuffle': False,
+                                                           'num_workers': PARAMS.num_workers,
+                                                           'pin_memory': PARAMS.pin_memory
+                                                           },
+                                             },
+
+                           'augmentation_params': {'image_augment_train': intensity_seq,
+                                                   'image_augment_with_target_train': affine_seq
+                                                   },
+                           },
+                'resize_tta': {'dataset_params': {'h': PARAMS.image_h,
+                                                  'w': PARAMS.image_w,
+                                                  'pad_method': PARAMS.pad_method,
+                                                  'image_source': PARAMS.image_source,
+                                                  'divisor': 64,
+                                                  'target_format': PARAMS.target_format,
+                                                  'MEAN': MEAN,
+                                                  'STD': STD
+                                                  },
+                               'loader_params': {'training': {'batch_size': PARAMS.batch_size_train,
+                                                              'shuffle': True,
+                                                              'num_workers': PARAMS.num_workers,
+                                                              'pin_memory': PARAMS.pin_memory
+                                                              },
+                                                 'inference': {'batch_size': PARAMS.batch_size_inference,
+                                                               'shuffle': False,
+                                                               'num_workers': PARAMS.num_workers,
+                                                               'pin_memory': PARAMS.pin_memory
+                                                               },
+                                                 },
+
+                               'augmentation_params': {'tta_transform': test_time_augmentation_transform
+                                                       },
+                               },
+                },
     'model': {
         'unet': {
             'architecture_config': {'model_params': {'n_filters': PARAMS.n_filters,
@@ -116,7 +208,8 @@ SOLUTION_CONFIG = AttrDict({
                       'flip_lr': True,
                       'rotation': False,
                       'color_shift_runs': 4},
-    'tta_aggregator': {'method': PARAMS.tta_aggregation_method,
+    'tta_aggregator': {'tta_inverse_transform': test_time_augmentation_inverse_transform,
+                       'method': PARAMS.tta_aggregation_method,
                        'nthreads': PARAMS.num_threads
                        },
     'thresholder': {'threshold_masks': PARAMS.threshold_masks,

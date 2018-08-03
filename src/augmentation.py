@@ -3,7 +3,7 @@ import numpy as np
 import imgaug as ia
 from imgaug import augmenters as iaa
 
-from .utils import get_crop_pad_sequence
+from .utils import get_crop_pad_sequence, reseed
 
 
 def _perspective_transform_augment_images(self, images, random_state, parents, hooks):
@@ -35,12 +35,12 @@ affine_seq = iaa.Sequential([
     # General
     iaa.SomeOf((1, 2),
                [iaa.Fliplr(0.5),
-                iaa.Affine(rotate=(-20, 20),
-                           translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}, mode='symmetric'),
+                iaa.Affine(rotate=(-10, 10),
+                           translate_percent={"x": (-0.25, 0.25)}, mode='symmetric'),
                 ]),
     # Deformations
-    iaa.Sometimes(0.3, iaa.PiecewiseAffine(scale=(0.02, 0.04))),
-    iaa.Sometimes(0.3, iaa.PerspectiveTransform(scale=(0.05, 0.10))),
+    iaa.Sometimes(0.3, iaa.PiecewiseAffine(scale=(0.04, 0.08))),
+    iaa.Sometimes(0.3, iaa.PerspectiveTransform(scale=(0.05, 0.1))),
 ], random_order=True)
 
 intensity_seq = iaa.Sequential([
@@ -50,16 +50,16 @@ intensity_seq = iaa.Sequential([
         iaa.Noop(),
         iaa.Sequential([
             iaa.OneOf([
-                iaa.Add((-30, 30)),
-                iaa.AddElementwise((-30, 30)),
-                iaa.Multiply((0.9, 1.1)),
-                iaa.MultiplyElementwise((0.9, 1.1)),
+                iaa.Add((-10, 10)),
+                iaa.AddElementwise((-10, 10)),
+                iaa.Multiply((0.95, 1.05)),
+                iaa.MultiplyElementwise((0.95, 1.05)),
             ]),
         ]),
         iaa.OneOf([
-            iaa.GaussianBlur(sigma=(0.0, 2.0)),
-            iaa.AverageBlur(k=(2, 7)),
-            iaa.MedianBlur(k=(3, 7))
+            iaa.GaussianBlur(sigma=(0.0, 1.0)),
+            iaa.AverageBlur(k=(2, 5)),
+            iaa.MedianBlur(k=(3, 5))
         ])
     ])
 ], random_order=False)
@@ -124,6 +124,53 @@ class PadFixed(iaa.Augmenter):
             return True
         else:
             return False
+
+
+def test_time_augmentation_transform(image, tta_parameters):
+    if tta_parameters['ud_flip']:
+        image = np.flipud(image)
+    if tta_parameters['lr_flip']:
+        image = np.fliplr(image)
+    if tta_parameters['color_shift']:
+        random_color_shift = reseed(intensity_seq, deterministic=False)
+        image = random_color_shift.augment_image(image)
+    image = rotate(image, tta_parameters['rotation'])
+    return image
+
+
+def test_time_augmentation_inverse_transform(image, tta_parameters):
+    image = per_channel_rotation(image.copy(), -1 * tta_parameters['rotation'])
+
+    if tta_parameters['lr_flip']:
+        image = per_channel_fliplr(image.copy())
+    if tta_parameters['ud_flip']:
+        image = per_channel_flipud(image.copy())
+    return image
+
+
+def per_channel_flipud(x):
+    x_ = x.copy()
+    for i, channel in enumerate(x):
+        x_[i, :, :] = np.flipud(channel)
+    return x_
+
+
+def per_channel_fliplr(x):
+    x_ = x.copy()
+    for i, channel in enumerate(x):
+        x_[i, :, :] = np.fliplr(channel)
+    return x_
+
+
+def per_channel_rotation(x, angle):
+    return rotate(x, angle, axes=(1, 2))
+
+
+def rotate(image, angle, axes=(0, 1)):
+    if angle % 90 != 0:
+        raise Exception('Angle must be a multiple of 90.')
+    k = angle // 90
+    return np.rot90(image, k, axes=axes)
 
 
 class RandomCropFixedSize(iaa.Augmenter):
