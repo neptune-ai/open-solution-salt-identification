@@ -40,6 +40,12 @@ You can jump start your participation in the competition by using our starter pa
 :trident:
 ```bash
 neptune account login
+
+```bash
+neptune run --config configs/neptune.yaml main.py prepare_metadata
+```
+
+```bash
 neptune run --config configs/neptune.yaml main.py train --pipeline_name unet
 ```
 
@@ -49,6 +55,11 @@ neptune run --config configs/neptune.yaml main.py evaluate_predict --pipeline_na
 ```
 
 :snake:
+
+```bash
+python main.py prepare_metadata
+```
+
 ```bash
 python main.py -- train--pipeline_name unet
 ```
