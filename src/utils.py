@@ -413,7 +413,7 @@ class KFoldBySortedValue(BaseCrossValidator):
             yield split_indeces
 
     def get_n_splits(self, X=None, y=None, groups=None):
-        return self.n_split
+        return self.n_splits
 
 
 def plot_list(images=[], labels=[]):

@@ -33,22 +33,29 @@ In this open source solution you will find references to the [neptune.ml](https:
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
 
 ### Installation *(fast track)*
-1. Clone repository and install requirements (*use Python3.5*)
+1. Clone repository and install requirements (*use Python3.5*) `pip3 install -r requirements.txt`
 1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_
-1. Run experiment based on U-Net
+1. Run experiment based on U-Net:
 
-:trident:
+neptune :trident:
 ```bash
 neptune account login
+neptune run --config configs/neptune.yaml main.py prepare_metadata
+```
+
+```bash
 neptune run --config configs/neptune.yaml main.py train --pipeline_name unet
 ```
 
 ```bash
-neptune account login
 neptune run --config configs/neptune.yaml main.py evaluate_predict --pipeline_name unet
 ```
 
-:snake:
+pure Python :snake:
+```bash
+python main.py prepare_metadata
+```
+
 ```bash
 python main.py -- train--pipeline_name unet
 ```
