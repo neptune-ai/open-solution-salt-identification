@@ -72,7 +72,7 @@ They will be saved in the
 From now on we will load the metadata by changing the `neptune.yaml`
 
 ```yaml
-  metadata_filepath: metadata.csv
+  metadata_filepath: /input/metadata.csv
 ```
 
 and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
