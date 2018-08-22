@@ -40,15 +40,21 @@ def prepare_metadata():
                              test_images_dir=PARAMS.test_images_dir,
                              depths_filepath=PARAMS.depths_filepath
                              )
-    meta.to_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'), index=None)
+    meta.to_csv(PARAMS.metadata_filepath, index=None)
 
 
 def train(pipeline_name, dev_mode):
     LOGGER.info('training')
+
+    if PARAMS.clone_experiment_dir_from != '':
+        if os.path.exists(PARAMS.experiment_dir):
+            shutil.rmtree(PARAMS.experiment_dir)
+        shutil.copytree(PARAMS.clone_experiment_dir_from, PARAMS.experiment_dir)
+
     if bool(PARAMS.overwrite) and os.path.isdir(PARAMS.experiment_dir):
         shutil.rmtree(PARAMS.experiment_dir)
 
-    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
+    meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_train = meta[meta['is_train'] == 1]
 
     cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=cfg.SEED)
@@ -75,7 +81,13 @@ def train(pipeline_name, dev_mode):
 
 def evaluate(pipeline_name, dev_mode):
     LOGGER.info('evaluating')
-    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
+
+    if PARAMS.clone_experiment_dir_from != '':
+        if os.path.exists(PARAMS.experiment_dir):
+            shutil.rmtree(PARAMS.experiment_dir)
+        shutil.copytree(PARAMS.clone_experiment_dir_from, PARAMS.experiment_dir)
+
+    meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_train = meta[meta['is_train'] == 1]
 
     cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=cfg.SEED)
@@ -122,7 +134,13 @@ def make_submission(submission_filepath):
 
 def predict(pipeline_name, submit_predictions, dev_mode):
     LOGGER.info('predicting')
-    meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
+
+    if PARAMS.clone_experiment_dir_from != '':
+        if os.path.exists(PARAMS.experiment_dir):
+            shutil.rmtree(PARAMS.experiment_dir)
+        shutil.copytree(PARAMS.clone_experiment_dir_from, PARAMS.experiment_dir)
+
+    meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_test = meta[meta['is_train'] == 0]
 
     if dev_mode:
@@ -154,13 +172,19 @@ def predict(pipeline_name, submit_predictions, dev_mode):
 
 def train_evaluate_cv(pipeline_name, dev_mode):
     LOGGER.info('training')
+
+    if PARAMS.clone_experiment_dir_from != '':
+        if os.path.exists(PARAMS.experiment_dir):
+            shutil.rmtree(PARAMS.experiment_dir)
+        shutil.copytree(PARAMS.clone_experiment_dir_from, PARAMS.experiment_dir)
+
     if bool(PARAMS.overwrite) and os.path.isdir(PARAMS.experiment_dir):
         shutil.rmtree(PARAMS.experiment_dir)
 
     if dev_mode:
-        meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'), nrows=PARAMS.dev_mode_size)
+        meta = pd.read_csv(PARAMS.metadata_filepath, nrows=PARAMS.dev_mode_size)
     else:
-        meta = pd.read_csv(os.path.join(PARAMS.meta_dir, 'metadata.csv'))
+        meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_train = meta[meta['is_train'] == 1]
 
     cv = KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=cfg.SEED)
