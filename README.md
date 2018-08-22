@@ -37,21 +37,104 @@ You can jump start your participation in the competition by using our starter pa
 1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_
 1. Run experiment based on U-Net:
 
-neptune :trident:
+
+
+#### Cloud
 ```bash
 neptune account login
+```
+
+Create project say Salt-Detection (SAL)
+
+Go to `neptune.yaml` and change:
+
+```yaml
+project: USERNAME/PROJECT_NAME
+```
+to your username and project name
+
+Prepare metadata. It only needs to be **done once**
+
+```bash
 neptune run --config configs/neptune.yaml main.py prepare_metadata
 ```
+They will be saved in the
+
+```yaml
+  metadata_filepath: /output/metadata.csv
+```
+
+From now on we will load the metadata by changing the `neptune.yaml`
+
+```yaml
+  metadata_filepath: metadata.csv
+```
+
+and adding the path to the experiment that generated metadata say SAL-1 to every command `--input /SAL-1/output/metadata.csv`
+
+Let's train the model by running:
+
+```bash
+neptune send --worker m-p100 \
+--environment pytorch-0.3.1-gpu-py3 \
+--config configs/neptune.yaml \
+--input /SAL-1/output/metadata.csv \
+main.py train --pipeline_name unet
+
+```
+
+The model will be saved in the:
+
+```yaml
+  experiment_dir: /output/experiment
+```
+
+So we when running evaluation we need to use this folder in our experiment. We do that by:
+
+changing `neptune.yaml` 
+
+```yaml
+  clone_experiment_dir_from: '/SAL-2/output/experiment'
+```
+and running the following command:
+
+
+```bash
+neptune send --worker m-p100 \
+--environment pytorch-0.3.1-gpu-py3 \
+--config configs/neptune.yaml \
+--input /SAL-1/output/metadata.csv \
+--input /SAL-2 \
+main.py evaluate_predict --pipeline_name unet
+
+```
+
+# Local
+Login to neptune if you want to use it
+```bash
+neptune account login
+```
+
+Prepare metadata
+
+```bash
+neptune run --config configs/neptune.yaml main.py prepare_metadata
+```
+
+Training
 
 ```bash
 neptune run --config configs/neptune.yaml main.py train --pipeline_name unet
 ```
 
+Inference
+
 ```bash
 neptune run --config configs/neptune.yaml main.py evaluate_predict --pipeline_name unet
 ```
 
-pure Python :snake:
+You can always run it with pure python :snake:
+
 ```bash
 python main.py prepare_metadata
 ```
