@@ -56,8 +56,13 @@ to your username and project name
 Prepare metadata. It only needs to be **done once**
 
 ```bash
-neptune run --config configs/neptune.yaml main.py prepare_metadata
+neptune send --worker m-p100 \
+--environment pytorch-0.3.1-gpu-py3 \
+--config configs/neptune.yaml \
+main.py prepare_metadata
+
 ```
+
 They will be saved in the
 
 ```yaml
