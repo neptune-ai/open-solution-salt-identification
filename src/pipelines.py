@@ -10,7 +10,7 @@ from .postprocessing import crop_image, resize_image, binarize
 from .pipeline_config import ORIGINAL_SIZE
 
 
-def unet(config, train_mode, suffix=''):
+def unet(config, suffix='', train_mode=True):
     if train_mode:
         preprocessing = preprocessing_train(config, model_name='unet', suffix=suffix)
     else:
@@ -25,23 +25,12 @@ def unet(config, train_mode, suffix=''):
                                  'meta_valid': E('callback_input', 'meta_valid'),
                                  }),
                 is_trainable=True,
+                force_fitting=True,
                 experiment_directory=config.env.experiment_dir)
-
-    if train_mode:
-        return unet
-
-    mask_postprocessed = mask_postprocessing(unet, config, suffix)
-
-    output = Step(name='output{}'.format(suffix),
-                  transformer=IdentityOperation(),
-                  input_steps=[mask_postprocessed],
-                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'binarized_images'),
-                                   }),
-                  experiment_directory=config.env.experiment_dir)
-    return output
+    return unet
 
 
-def unet_tta(config, train_mode=False, suffix=''):
+def unet_tta(config, suffix=''):
     preprocessing, tta_generator = preprocessing_inference_tta(config, model_name='unet')
 
     unet = Step(name='unet{}'.format(suffix),
@@ -63,15 +52,7 @@ def unet_tta(config, train_mode=False, suffix=''):
                                                }),
                               experiment_directory=config.env.experiment_dir)
 
-    mask_postprocessed = mask_postprocessing(prediction_renamed, config, suffix)
-
-    output = Step(name='output{}'.format(suffix),
-                  transformer=IdentityOperation(),
-                  input_steps=[mask_postprocessed],
-                  adapter=Adapter({'y_pred': E(mask_postprocessed.name, 'binarized_images')}),
-                  experiment_directory=config.env.experiment_dir)
-
-    return output
+    return prediction_renamed
 
 
 def preprocessing_train(config, model_name='unet', suffix=''):
@@ -223,7 +204,7 @@ def aggregator(name, model, tta_generator, experiment_directory, config):
     return tta_aggregator
 
 
-def mask_postprocessing(model, config, suffix=''):
+def mask_postprocessing(config, suffix=''):
     if config.execution.loader_mode == 'crop_and_pad':
         size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif config.execution.loader_mode == 'resize':
@@ -235,8 +216,8 @@ def mask_postprocessing(model, config, suffix=''):
                        transformer=make_apply_transformer(size_adjustment_function,
                                                           output_name='resized_images',
                                                           apply_on=['images']),
-                       input_steps=[model],
-                       adapter=Adapter({'images': E(model.name, 'mask_prediction'),
+                       input_data=['input_masks'],
+                       adapter=Adapter({'images': E('input_masks', 'mask_prediction'),
                                         }),
                        experiment_directory=config.env.experiment_dir)
 
@@ -248,10 +229,11 @@ def mask_postprocessing(model, config, suffix=''):
                      adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
                                       }),
                      experiment_directory=config.env.experiment_dir)
-
     return binarizer
 
 
-PIPELINES = {'unet': unet,
-             'unet_tta': unet_tta
+PIPELINES = {'unet': {'network': unet,
+                      'postprocessing': mask_postprocessing},
+             'unet_tta': {'network': unet_tta,
+                          'postprocessing': mask_postprocessing},
              }
