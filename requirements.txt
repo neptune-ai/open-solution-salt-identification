@@ -1,4 +1,4 @@
-neptune_cli==2.8.6
+neptune-cli
 steppy-toolkit==0.1.5
 steppy==0.1.6
 attrdict==2.0.0
