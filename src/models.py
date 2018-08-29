@@ -157,9 +157,6 @@ class PyTorchUNet(Model):
                                      **config['model_config'])
         self._initialize_model_weights = lambda: None
 
-        # self.load(
-        #     '/mnt/ml-team/minerva/open-solutions/salt/kuba/experiments/resnets_frozen/checkpoints/unet/best.torch')
-
     def set_loss(self):
         if self.activation_func == 'softmax':
             loss_function = partial(mixed_dice_cross_entropy_loss,

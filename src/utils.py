@@ -6,6 +6,7 @@ import sys
 import time
 from itertools import chain
 from collections import Iterable
+import gc
 
 from deepsense import neptune
 import numpy as np
@@ -21,6 +22,7 @@ from steppy.base import BaseTransformer
 import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
+import torch
 
 NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune.yaml')
 
@@ -432,6 +434,8 @@ def plot_list(images=[], labels=[]):
     plt.show()
 
 
-def clean_memory():
+def clean_object_from_memory(obj):
+    del obj
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
