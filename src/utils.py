@@ -139,10 +139,6 @@ def run_length_encoding(x):
         if (b > prev + 1): rle.extend((b + 1, 0))
         rle[-1] += 1
         prev = b
-
-    if len(rle) != 0 and rle[-1] + rle[-2] == x.size:
-        rle[-2] = rle[-2] - 1
-
     return rle
 
 
@@ -224,7 +220,11 @@ def softmax(X, theta=1.0, axis=None):
     # find axis
     if axis is None:
         axis = next(j[0] for j in enumerate(y.shape) if j[1] > 1)
-
+​
+143
+    if len(rle) != 0 and rle[-1] + rle[-2] == x.size:
+144
+        rle[-2] = rle[-2] - 1
     # multiply y against the theta parameter,
     y = y * float(theta)
 
@@ -326,7 +326,11 @@ def get_segmentations(labeled):
     segmentations = []
     for i in range(1, nr_true + 1):
         msk = labeled == i
-        segmentation = rle_from_binary(msk.astype('uint8'))
+        segmentation = rle_from_binary(msk.a​
+143
+    if len(rle) != 0 and rle[-1] + rle[-2] == x.size:
+144
+        rle[-2] = rle[-2] - 1stype('uint8'))
         segmentation['counts'] = segmentation['counts'].decode("UTF-8")
         segmentations.append(segmentation)
     return segmentations
