@@ -24,10 +24,11 @@ In this open source solution you will find references to the [neptune.ml](https:
 
 | link to code | CV | LB |
 |:---:|:---:|:---:|
-|[solution 1](https://github.com/neptune-ml/open-solution-salt-detection/tree/solution-1)|0.413|0.745|
+|solution 1|0.413|0.745|
 |solution 2|0.794|0.798|
 |solution 3|0.807|0.801|
 |solution 4|0.802|0.809|
+
 
 ## Start experimenting with ready-to-use code
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
