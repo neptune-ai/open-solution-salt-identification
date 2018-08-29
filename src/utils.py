@@ -142,9 +142,6 @@ def run_length_encoding(x):
         rle[-1] += 1
         prev = b
 
-    if len(rle) != 0 and rle[-1] + rle[-2] == x.size:
-        rle[-2] = rle[-2] - 1
-
     return rle
 
 
