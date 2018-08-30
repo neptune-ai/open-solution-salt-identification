@@ -76,7 +76,7 @@ From now on we will load the metadata by changing the `neptune.yaml`
   metadata_filepath: /input/metadata.csv
 ```
 
-and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
+and adding the path to the experiment that generated metadata say SAL-1 to every command `--input /SAL-1/output/metadata.csv`
 
 Let's train the model by running:
 
@@ -84,7 +84,7 @@ Let's train the model by running:
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config configs/neptune.yaml \
---input /input/metadata.csv \
+--input /SAL-1/output/metadata.csv \
 main.py train --pipeline_name unet
 
 ```
@@ -109,7 +109,7 @@ and running the following command:
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config configs/neptune.yaml \
---input /input/metadata.csv \
+--input /SAL-1/output/metadata.csv \
 --input /SAL-2 \
 main.py evaluate_predict --pipeline_name unet
 
