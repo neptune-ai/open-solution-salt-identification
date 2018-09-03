@@ -91,7 +91,9 @@ Let's train the model by changing the command in the `main.py` to:
 
 ```python
 if __name__ == '__main__':
-    train_evaluate_predict_cv()
+    train()
+    evaluate()
+    predict()
 ```
 
 and running
@@ -110,7 +112,9 @@ You could have run it easily with both of those functions executed in the `main.
 ```python
 if __name__ == '__main__':
     prepare_metadata()
-    train_evaluate_predict_cv()
+    train()
+    evaluate()
+    predict()
 ```
 but recalculating metadata every time you run your pipeline doesn't seem like a good idea :).
 
@@ -135,7 +139,8 @@ and
 
 ```python
 if __name__ == '__main__':
-    evaluate_predict_cv()
+    evaluate()
+    predict()
 ```
 
 and running the following command:
@@ -173,7 +178,9 @@ Training and inference
 Change `main.py':
 ```python
 if __name__ == '__main__':
-    train_evaluate_predict_cv()
+    train()
+    evaluate()
+    predict()
 ```
 
 ```bash
