@@ -42,7 +42,7 @@ parameters:
   pad_size: 13
   target_format: 'png'
   dev_mode_size: 20
-  n_cv_splits: 10
+  n_cv_splits: 6
   shuffle: 1
 
   # General parameters
@@ -53,7 +53,7 @@ parameters:
   # U-Net parameters
   unet_output_channels: 2
   unet_activation: 'sigmoid'
-  encoder: ResNet152
+  encoder: ResNet34
   fine_tuning: 0
 
   # U-Net from scratch parameters
@@ -70,7 +70,7 @@ parameters:
 
   # Training schedule
   epochs_nr: 10000
-  batch_size_train: 24
+  batch_size_train: 64
   batch_size_inference: 64
   lr: 0.0001
   momentum: 0.9
