@@ -22,7 +22,7 @@ LOGGER = utils.init_logger()
 # CONFIGS
 ########################################
 
-EXPERIMENT_DIR = '/mnt/ml-team/minerva/open-solutions/salt/kuba/experiments/dev'  # '/output/experiment'
+EXPERIMENT_DIR = '/output/experiment'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
 OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
@@ -202,7 +202,6 @@ CONFIG = AttrDict({
             'training_config': {'epochs': PARAMS.epochs_nr,
                                 'shuffle': True,
                                 'batch_size': PARAMS.batch_size_train,
-                                'fine_tuning': PARAMS.fine_tuning,
                                 },
             'callbacks_config': {'model_checkpoint': {
                 'filepath': os.path.join(EXPERIMENT_DIR, 'checkpoints', 'unet', 'best.torch'),
@@ -433,7 +432,7 @@ def save_predictions(out_of_fold_train_predictions, out_of_fold_test_predictions
 
 
 if __name__ == '__main__':
-    # prepare_metadata()
+    prepare_metadata()
     train()
     evaluate()
     predict()
