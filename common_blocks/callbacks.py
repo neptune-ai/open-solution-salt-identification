@@ -17,11 +17,13 @@ from toolkit.pytorch_transformers.validation import score_model
 
 from .utils import get_logger, sigmoid, softmax, make_apply_transformer, read_masks, get_list_of_image_predictions
 from .metrics import intersection_over_union, intersection_over_union_thresholds
-from .pipeline_config import Y_COLUMNS, ORIGINAL_SIZE, SOLUTION_CONFIG
 from .postprocessing import crop_image, resize_image, binarize
 
 logger = get_logger()
 
+Y_COLUMN = 'file_path_mask'
+ORIGINAL_SIZE = (101, 101)
+THRESHOLD = 0.5
 
 class Callback:
     def __init__(self):
@@ -474,7 +476,7 @@ class ValidationMonitorSegmentation(ValidationMonitor):
         self.output_names = transformer.output_names
         self.validation_datagen = validation_datagen
         self.meta_valid = meta_valid
-        self.y_true = read_masks(self.meta_valid[Y_COLUMNS[0]].values)
+        self.y_true = read_masks(self.meta_valid[Y_COLUMN].values)
         self.activation_func = transformer.activation_func
         self.transformer = transformer
 
@@ -635,7 +637,7 @@ def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
 
     binarizer = Step(name='binarizer',
                      transformer=make_apply_transformer(
-                         partial(binarize, threshold=SOLUTION_CONFIG.thresholder.threshold_masks),
+                         partial(binarize, threshold=THRESHOLD),
                          output_name='binarized_images',
                          apply_on=['images']),
                      input_steps=[mask_resize],

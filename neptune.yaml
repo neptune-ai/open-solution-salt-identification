@@ -1,4 +1,6 @@
-project: USERNAME/PROJECT_NAME
+project: neptune-ml/Salt-Detection
+
+#project: USERNAME/PROJECT_NAME
 
 name: tgs_salt_identification_challenge
 tags: [solution-1]
@@ -8,7 +10,7 @@ metric:
   goal: maximize
 
 #Comment out if not in Cloud Environment
-pip-requirements-file: requirements.txt
+#pip-requirements-file: requirements.txt
 
 exclude:
   - .git
@@ -22,12 +24,15 @@ exclude:
 
 parameters:
 # Data Paths
-  train_images_dir: /public/challenges/kaggle-salt-identification/train
-  test_images_dir: /public/challenges/kaggle-salt-identification/test
-  metadata_filepath: /input/metadata.csv # if you are running prepare_metadata change it to  /output/metadata.csv here
-  depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
-  experiment_dir: /output/experiment
-  clone_experiment_dir_from: '' #When running eval specify this as for example /input/SAL-14/output/experiment
+#  train_images_dir: /public/challenges/kaggle-salt-identification/train
+#  test_images_dir: /public/challenges/kaggle-salt-identification/test
+#  metadata_filepath: /input/metadata.csv # if you are running prepare_metadata change it to  /output/metadata.csv here
+#  depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
+
+  train_images_dir: /mnt/ml-team/minerva/open-solutions/salt/data/train
+  test_images_dir: /mnt/ml-team/minerva/open-solutions/salt/data/test
+  metadata_filepath: /mnt/ml-team/minerva/open-solutions/salt/files/metadata.csv
+  depths_filepath: /mnt/ml-team/minerva/open-solutions/salt/data/depths.csv
 
  # Execution
   overwrite: 1
