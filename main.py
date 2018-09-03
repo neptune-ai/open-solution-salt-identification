@@ -410,48 +410,6 @@ def calculate_scores(y_true, y_pred):
     return iou, iout
 
 
-def add_fold_id_suffix(config, fold_id):
-    config['model']['unet']['callbacks_config']['neptune_monitor']['model_name'] = 'unet_{}'.format(fold_id)
-    checkpoint_filepath = config['model']['unet']['callbacks_config']['model_checkpoint']['filepath']
-    fold_checkpoint_filepath = checkpoint_filepath.replace('unet/best.torch', 'unet_{}/best.torch'.format(fold_id))
-    config['model']['unet']['callbacks_config']['model_checkpoint']['filepath'] = fold_checkpoint_filepath
-    return config
-
-
-def log_scores(iou_mean, iou_std, iout_mean, iout_std):
-    LOGGER.info('IOU mean {}, IOU std {}'.format(iou_mean, iou_std))
-    CTX.channel_send('IOU', 0, iou_mean)
-    CTX.channel_send('IOU STD', 0, iou_std)
-
-    LOGGER.info('IOUT mean {}, IOUT std {}'.format(iout_mean, iout_std))
-    CTX.channel_send('IOUT', 0, iout_mean)
-    CTX.channel_send('IOUT STD', 0, iout_std)
-
-
-def save_predictions(out_of_fold_train_predictions, out_of_fold_test_predictions, meta_train, meta_test):
-    averaged_mask_predictions_test = np.mean(np.array(out_of_fold_test_predictions), axis=0)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
-    pipeline_postprocessing.clean_cache()
-    test_pipe_masks = {'input_masks': {'mask_prediction': averaged_mask_predictions_test}
-                       }
-    y_pred_test = pipeline_postprocessing.transform(test_pipe_masks)['binarized_images']
-
-    LOGGER.info('Saving predictions')
-    out_of_fold_train_predictions_path = os.path.join(EXPERIMENT_DIR, 'out_of_fold_train_predictions.pkl')
-    joblib.dump({'ids': meta_train[ID_COLUMN].tolist(),
-                 'images': out_of_fold_train_predictions}, out_of_fold_train_predictions_path)
-
-    out_of_fold_test_predictions_path = os.path.join(EXPERIMENT_DIR, 'out_of_fold_test_predictions.pkl')
-    joblib.dump({'ids': meta_test[ID_COLUMN].tolist(),
-                 'images': averaged_mask_predictions_test}, out_of_fold_test_predictions_path)
-
-    submission = utils.create_submission(meta_test, y_pred_test)
-    submission_filepath = os.path.join(EXPERIMENT_DIR, 'submission.csv')
-    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
-    LOGGER.info('submission saved to {}'.format(submission_filepath))
-    LOGGER.info('submission head \n\n{}'.format(submission.head()))
-
-
 #  .___  ___.      ___       __  .__   __. 
 #  |   \/   |     /   \     |  | |  \ |  | 
 #  |  \  /  |    /  ^  \    |  | |   \|  | 
