@@ -1,7 +1,7 @@
 project: USERNAME/PROJECT_NAME
 
 name: tgs_salt_identification_challenge
-tags: [solution-1]
+tags: [solution-5]
 
 metric:
   channel: 'IOUT'
@@ -11,17 +11,17 @@ metric:
 pip-requirements-file: requirements.txt
 
 exclude:
-  - .git
-  - .idea
-  - .ipynb_checkpoints
-  - output
-  - imgs
-  - neptune.log
-  - offline_job.log
-  - notebooks
+- .git
+- .idea
+- .ipynb_checkpoints
+- output
+- imgs
+- neptune.log
+- offline_job.log
+- notebooks
 
 parameters:
-# Data Paths
+  # Data Paths
   train_images_dir: /public/challenges/kaggle-salt-identification/train
   test_images_dir: /public/challenges/kaggle-salt-identification/test
   metadata_filepath: /input/metadata.csv # if you are running prepare_metadata change it to  /output/metadata.csv here
@@ -29,15 +29,17 @@ parameters:
   experiment_dir: /output/experiment
   clone_experiment_dir_from: '' #When running eval specify this as for example /input/SAL-14/output/experiment
 
- # Execution
+  # Execution
   overwrite: 1
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-3'
+  kaggle_message: 'solution-5'
   image_source: disk
   pin_memory: 1
-  loader_mode: resize
-  pad_method: symmetric
+  loader_mode: resize_and_pad
+  pad_method: reflect
+  resize_target_size: 102
+  pad_size: 13
   target_format: 'png'
   dev_mode_size: 20
   n_cv_splits: 10
@@ -52,6 +54,7 @@ parameters:
   unet_output_channels: 2
   unet_activation: 'sigmoid'
   encoder: ResNet152
+  fine_tuning: 0
 
   # U-Net from scratch parameters
   nr_unet_outputs: 1
@@ -67,7 +70,7 @@ parameters:
 
   # Training schedule
   epochs_nr: 10000
-  batch_size_train: 64
+  batch_size_train: 24
   batch_size_inference: 64
   lr: 0.0001
   momentum: 0.9
@@ -80,7 +83,7 @@ parameters:
   use_batch_norm: 1
   l2_reg_conv: 0.0001
   l2_reg_dense: 0.0
-  dropout_conv: 0.1
+  dropout_conv: 0.0
   dropout_dense: 0.0
 
   # Postprocessing

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import torch
 from PIL import Image
-from deepsense import neptune
+import neptune
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import ExponentialLR
 from tempfile import TemporaryDirectory
@@ -157,63 +157,6 @@ class TrainingMonitor(Callback):
         self.batch_id += 1
 
 
-class ValidationMonitor(Callback):
-    def __init__(self, epoch_every=None, batch_every=None):
-        super().__init__()
-        if epoch_every == 0:
-            self.epoch_every = False
-        else:
-            self.epoch_every = epoch_every
-        if batch_every == 0:
-            self.batch_every = False
-        else:
-            self.batch_every = batch_every
-
-    def on_epoch_end(self, *args, **kwargs):
-        if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
-            self.model.eval()
-            val_loss = self.get_validation_loss()
-            self.model.train()
-            for name, loss in val_loss.items():
-                loss = loss.data.cpu().numpy()[0]
-                logger.info('epoch {0} validation {1}:     {2:.5f}'.format(self.epoch_id, name, loss))
-        self.epoch_id += 1
-
-
-class EarlyStopping(Callback):
-    def __init__(self, patience, minimize=True):
-        super().__init__()
-        self.patience = patience
-        self.minimize = minimize
-        self.best_score = None
-        self.epoch_since_best = 0
-        self._training_break = False
-
-    def on_epoch_end(self, *args, **kwargs):
-        self.model.eval()
-        val_loss = self.get_validation_loss()
-        loss_sum = val_loss['sum']
-        loss_sum = loss_sum.data.cpu().numpy()[0]
-
-        self.model.train()
-
-        if not self.best_score:
-            self.best_score = loss_sum
-
-        if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score):
-            self.best_score = loss_sum
-            self.epoch_since_best = 0
-        else:
-            self.epoch_since_best += 1
-
-        if self.epoch_since_best > self.patience:
-            self._training_break = True
-        self.epoch_id += 1
-
-    def training_break(self, *args, **kwargs):
-        return self._training_break
-
-
 class ExponentialLRScheduler(Callback):
     def __init__(self, gamma, epoch_every=1, batch_every=None):
         super().__init__()
@@ -252,88 +195,6 @@ class ExponentialLRScheduler(Callback):
             logger.info('epoch {0} batch {1} current lr: {2}'.format(
                 self.epoch_id + 1, self.batch_id + 1, self.optimizer.state_dict()['param_groups'][0]['lr']))
         self.batch_id += 1
-
-
-class ModelCheckpoint(Callback):
-    def __init__(self, filepath, epoch_every=1, minimize=True):
-        super().__init__()
-        self.filepath = filepath
-        self.minimize = minimize
-        self.best_score = None
-
-        if epoch_every == 0:
-            self.epoch_every = False
-        else:
-            self.epoch_every = epoch_every
-
-    def on_train_begin(self, *args, **kwargs):
-        self.epoch_id = 0
-        self.batch_id = 0
-        os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
-
-    def on_epoch_end(self, *args, **kwargs):
-        if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
-            self.model.eval()
-            val_loss = self.get_validation_loss()
-            loss_sum = val_loss['sum']
-            loss_sum = loss_sum.data.cpu().numpy()[0]
-
-            self.model.train()
-
-            if self.best_score is None:
-                self.best_score = loss_sum
-
-            if (self.minimize and loss_sum < self.best_score) or (not self.minimize and loss_sum > self.best_score) or (
-                        self.epoch_id == 0):
-                self.best_score = loss_sum
-                save_model(self.model, self.filepath)
-                logger.info('epoch {0} model saved to {1}'.format(self.epoch_id, self.filepath))
-
-        self.epoch_id += 1
-
-
-class NeptuneMonitor(Callback):
-    def __init__(self, model_name):
-        super().__init__()
-        self.model_name = model_name
-        self.ctx = neptune.Context()
-        self.epoch_loss_averager = Averager()
-
-    def on_train_begin(self, *args, **kwargs):
-        self.epoch_loss_averagers = {}
-        self.epoch_id = 0
-        self.batch_id = 0
-
-    def on_batch_end(self, metrics, *args, **kwargs):
-        for name, loss in metrics.items():
-            loss = loss.data.cpu().numpy()[0]
-
-            if name in self.epoch_loss_averagers.keys():
-                self.epoch_loss_averagers[name].send(loss)
-            else:
-                self.epoch_loss_averagers[name] = Averager()
-                self.epoch_loss_averagers[name].send(loss)
-
-            self.ctx.channel_send('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
-
-        self.batch_id += 1
-
-    def on_epoch_end(self, *args, **kwargs):
-        self._send_numeric_channels()
-        self.epoch_id += 1
-
-    def _send_numeric_channels(self, *args, **kwargs):
-        for name, averager in self.epoch_loss_averagers.items():
-            epoch_avg_loss = averager.value
-            averager.reset()
-            self.ctx.channel_send('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id, y=epoch_avg_loss)
-
-        self.model.eval()
-        val_loss = self.get_validation_loss()
-        self.model.train()
-        for name, loss in val_loss.items():
-            loss = loss.data.cpu().numpy()[0]
-            self.ctx.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
 
 
 class ExperimentTiming(Callback):
@@ -385,81 +246,64 @@ class ExperimentTiming(Callback):
         self.batch_start = datetime.now()
 
 
-class ReduceLROnPlateau(Callback):  # thank you keras
-    def __init__(self):
-        super().__init__()
-        pass
-
-
-class NeptuneMonitorSegmentation(NeptuneMonitor):
+class NeptuneMonitor(Callback):
     def __init__(self, image_nr, image_resize, model_name):
-        super().__init__(model_name)
+        super().__init__()
+        self.model_name = model_name
+        self.ctx = neptune.Context()
+        self.epoch_loss_averager = Averager()
         self.image_nr = image_nr
         self.image_resize = image_resize
 
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_loss_averagers = {}
+        self.epoch_id = 0
+        self.batch_id = 0
+
+    def on_batch_end(self, metrics, *args, **kwargs):
+        for name, loss in metrics.items():
+            loss = loss.data.cpu().numpy()[0]
+
+            if name in self.epoch_loss_averagers.keys():
+                self.epoch_loss_averagers[name].send(loss)
+            else:
+                self.epoch_loss_averagers[name] = Averager()
+                self.epoch_loss_averagers[name].send(loss)
+
+            self.ctx.channel_send('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
+
+        self.batch_id += 1
+
     def on_epoch_end(self, *args, **kwargs):
         self._send_numeric_channels()
-        # self._send_image_channels()
         self.epoch_id += 1
 
-    def _send_image_channels(self):
+    def _send_numeric_channels(self, *args, **kwargs):
+        for name, averager in self.epoch_loss_averagers.items():
+            epoch_avg_loss = averager.value
+            averager.reset()
+            self.ctx.channel_send('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id, y=epoch_avg_loss)
+
         self.model.eval()
-        pred_masks = self.get_prediction_masks()
+        val_loss = self.get_validation_loss()
         self.model.train()
-
-        for name, pred_mask in pred_masks.items():
-            for i, image_duplet in enumerate(pred_mask):
-                h, w = image_duplet.shape[1:]
-                image_glued = np.zeros((h, 2 * w + 10))
-
-                image_glued[:, :w] = image_duplet[0, :, :]
-                image_glued[:, (w + 10):] = image_duplet[1, :, :]
-
-                pill_image = Image.fromarray((image_glued * 255.).astype(np.uint8))
-                h_, w_ = image_glued.shape
-                pill_image = pill_image.resize((int(self.image_resize * w_), int(self.image_resize * h_)),
-                                               Image.ANTIALIAS)
-
-                self.ctx.channel_send('{} {}'.format(self.model_name, name), neptune.Image(
-                    name='epoch{}_batch{}_idx{}'.format(self.epoch_id, self.batch_id, i),
-                    description="true and prediction masks",
-                    data=pill_image))
-
-                if i == self.image_nr:
-                    break
-
-    def get_prediction_masks(self):
-        prediction_masks = {}
-        batch_gen, steps = self.validation_datagen
-        for batch_id, data in enumerate(batch_gen):
-            if len(data) != len(self.output_names) + 1:
-                raise ValueError('incorrect targets provided')
-            X = data[0]
-            targets_tensors = data[1:]
-
-            if torch.cuda.is_available():
-                X = Variable(X).cuda()
-            else:
-                X = Variable(X)
-
-            outputs_batch = self.model(X)
-            if len(outputs_batch) == len(self.output_names):
-                for name, output, target in zip(self.output_names, outputs_batch, targets_tensors):
-                    prediction = sigmoid(np.squeeze(output.data.cpu().numpy(), axis=1))
-                    ground_truth = np.squeeze(target.cpu().numpy(), axis=1)
-                    prediction_masks[name] = np.stack([prediction, ground_truth], axis=1)
-            else:
-                for name, target in zip(self.output_names, targets_tensors):
-                    prediction = sigmoid(np.squeeze(outputs_batch.data.cpu().numpy(), axis=1))
-                    ground_truth = np.squeeze(target.cpu().numpy(), axis=1)
-                    prediction_masks[name] = np.stack([prediction, ground_truth], axis=1)
-            break
-        return prediction_masks
+        for name, loss in val_loss.items():
+            loss = loss.data.cpu().numpy()[0]
+            self.ctx.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
 
 
-class ValidationMonitorSegmentation(ValidationMonitor):
-    def __init__(self, data_dir, loader_mode, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class ValidationMonitor(Callback):
+    def __init__(self, data_dir, loader_mode, epoch_every=None, batch_every=None):
+        super().__init__()
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+        if batch_every == 0:
+            self.batch_every = False
+        else:
+            self.batch_every = batch_every
+
         self.data_dir = data_dir
         self.validation_pipeline = postprocessing_pipeline_simplified
         self.loader_mode = loader_mode
@@ -480,6 +324,16 @@ class ValidationMonitorSegmentation(ValidationMonitor):
 
     def get_validation_loss(self):
         return self._get_validation_loss()
+
+    def on_epoch_end(self, *args, **kwargs):
+        if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
+            self.model.eval()
+            val_loss = self.get_validation_loss()
+            self.model.train()
+            for name, loss in val_loss.items():
+                loss = loss.data.cpu().numpy()[0]
+                logger.info('epoch {0} validation {1}:     {2:.5f}'.format(self.epoch_id, name, loss))
+        self.epoch_id += 1
 
     def _get_validation_loss(self):
         output, epoch_loss = self._transform()
@@ -563,10 +417,23 @@ class ValidationMonitorSegmentation(ValidationMonitor):
         return y_pred
 
 
-class ModelCheckpointSegmentation(ModelCheckpoint):
-    def __init__(self, metric_name='sum', *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class ModelCheckpoint(Callback):
+    def __init__(self, filepath, metric_name='sum', epoch_every=1, minimize=True):
+        self.filepath = filepath
+        self.minimize = minimize
+        self.best_score = None
+
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+
         self.metric_name = metric_name
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+        os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
 
     def on_epoch_end(self, *args, **kwargs):
         if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
@@ -589,10 +456,18 @@ class ModelCheckpointSegmentation(ModelCheckpoint):
         self.epoch_id += 1
 
 
-class EarlyStoppingSegmentation(EarlyStopping):
-    def __init__(self, metric_name='sum', *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class EarlyStopping(Callback):
+    def __init__(self, metric_name='sum', patience=1000, minimize=True):
+        super().__init__()
+        self.patience = patience
+        self.minimize = minimize
+        self.best_score = None
+        self.epoch_since_best = 0
+        self._training_break = False
         self.metric_name = metric_name
+
+    def training_break(self, *args, **kwargs):
+        return self._training_break
 
     def on_epoch_end(self, *args, **kwargs):
         self.model.eval()
@@ -617,7 +492,7 @@ class EarlyStoppingSegmentation(EarlyStopping):
 
 
 def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
-    if loader_mode == 'crop_and_pad':
+    if loader_mode == 'resize_and_pad':
         size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif loader_mode == 'resize':
         size_adjustment_function = partial(resize_image, target_size=ORIGINAL_SIZE)

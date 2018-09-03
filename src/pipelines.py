@@ -5,7 +5,7 @@ from steppy.adapter import Adapter, E
 
 from . import loaders
 from .models import PyTorchUNet
-from .utils import make_apply_transformer
+from .utils import make_apply_transformer, FineTuneStep
 from .postprocessing import crop_image, resize_image, binarize
 from .pipeline_config import ORIGINAL_SIZE
 
@@ -16,21 +16,22 @@ def unet(config, suffix='', train_mode=True):
     else:
         preprocessing = preprocessing_inference(config, suffix=suffix)
 
-    unet = Step(name='unet{}'.format(suffix),
-                transformer=PyTorchUNet(**config.model['unet']),
-                input_data=['callback_input'],
-                input_steps=[preprocessing],
-                adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
-                                 'validation_datagen': E(preprocessing.name, 'validation_datagen'),
-                                 'meta_valid': E('callback_input', 'meta_valid'),
-                                 }),
-                is_trainable=True,
-                force_fitting=True,
-                experiment_directory=config.env.experiment_dir)
+    unet = FineTuneStep(name='unet{}'.format(suffix),
+                        transformer=PyTorchUNet(**config.model['unet']),
+                        input_data=['callback_input'],
+                        input_steps=[preprocessing],
+                        adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
+                                         'validation_datagen': E(preprocessing.name, 'validation_datagen'),
+                                         'meta_valid': E('callback_input', 'meta_valid'),
+                                         }),
+                        is_trainable=True,
+                        fine_tuning=config.model.unet.training_config.fine_tuning,
+                        experiment_directory=config.env.experiment_dir)
+
     return unet
 
 
-def unet_tta(config, suffix=''):
+def unet_tta(config, suffix='', **kwargs):
     preprocessing, tta_generator = preprocessing_inference_tta(config, model_name='unet')
 
     unet = Step(name='unet{}'.format(suffix),
@@ -56,9 +57,9 @@ def unet_tta(config, suffix=''):
 
 
 def preprocessing_train(config, model_name='unet', suffix=''):
-    if config.execution.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPad
-        loader_config = config.loaders.crop_and_pad
+    if config.execution.loader_mode == 'resize_and_pad':
+        Loader = loaders.ImageSegmentationLoaderResizePad
+        loader_config = config.loaders.resize_and_pad
     elif config.execution.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResize
         loader_config = config.loaders.resize
@@ -106,12 +107,12 @@ def preprocessing_train(config, model_name='unet', suffix=''):
 
 
 def preprocessing_inference(config, model_name='unet', suffix=''):
-    if config.execution.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPad
-        loader_config = config.loaders.crop_and_pad
+    if config.execution.loader_mode == 'resize_and_pad':
+        Loader = loaders.ImageSegmentationLoaderResizePad
+        loader_config = config.loaders.resize_and_pad
     elif config.execution.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResize
-        loader_config = config.loaders.crop_and_pad
+        loader_config = config.loaders.resize
     else:
         raise NotImplementedError
 
@@ -144,7 +145,16 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
 
 
 def preprocessing_inference_tta(config, model_name='unet', suffix=''):
-    if config.loader.dataset_params.image_source == 'memory':
+    if config.execution.loader_mode == 'resize_and_pad':
+        Loader = loaders.ImageSegmentationLoaderPadTTA
+        loader_config = config.loaders.pad_tta
+    elif config.execution.loader_mode == 'resize':
+        Loader = loaders.ImageSegmentationLoaderResizeTTA
+        loader_config = config.loaders.resize_tta
+    else:
+        raise NotImplementedError
+
+    if loader_config.dataset_params.image_source == 'memory':
         reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.ImageReader(train_mode=False, **config.reader[model_name]),
                                 input_data=['input'],
@@ -157,7 +167,7 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
                              adapter=Adapter({'X': E('reader_inference', 'X')}),
                              experiment_directory=config.env.experiment_dir)
 
-    elif config.loader.dataset_params.image_source == 'disk':
+    elif loader_config.dataset_params.image_source == 'disk':
         reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.XYSplit(train_mode=False, **config.xy_splitter[model_name]),
                                 input_data=['input'],
@@ -169,15 +179,6 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
                              input_steps=[reader_inference],
                              adapter=Adapter({'X': E('reader_inference', 'X')}),
                              experiment_directory=config.env.experiment_dir)
-    else:
-        raise NotImplementedError
-
-    if config.execution.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPadTTA
-        loader_config = config.loader.crop_and_pad_tta
-    elif config.execution.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResizeTTA
-        loader_config = config.loader.resize_tta
     else:
         raise NotImplementedError
 
@@ -205,7 +206,7 @@ def aggregator(name, model, tta_generator, experiment_directory, config):
 
 
 def mask_postprocessing(config, suffix=''):
-    if config.execution.loader_mode == 'crop_and_pad':
+    if config.execution.loader_mode == 'resize_and_pad':
         size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif config.execution.loader_mode == 'resize':
         size_adjustment_function = partial(resize_image, target_size=ORIGINAL_SIZE)

@@ -8,7 +8,6 @@ from itertools import chain
 from collections import Iterable
 import gc
 
-from deepsense import neptune
 import numpy as np
 import pandas as pd
 import torch
@@ -18,49 +17,29 @@ from attrdict import AttrDict
 from tqdm import tqdm
 from pycocotools import mask as cocomask
 from sklearn.model_selection import BaseCrossValidator
-from steppy.base import BaseTransformer
+from steppy.base import BaseTransformer, Step
+from steppy.utils import get_logger
 import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
 import torch
 
-NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune.yaml')
+NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune_local.yaml')
+logger = get_logger()
 
 
-# Alex Martelli's 'Borg'
-# http://python-3-patterns-idioms-test.readthedocs.io/en/latest/Singleton.html
-class _Borg:
-    _shared_state = {}
+def read_params(ctx):
+    if ctx.params.__class__.__name__ == 'OfflineContextParams':
+        params = read_yaml().parameters
+    else:
+        params = ctx.params
+    return params
 
-    def __init__(self):
-        self.__dict__ = self._shared_state
 
-
-class NeptuneContext(_Borg):
-    def __init__(self, fallback_file=NEPTUNE_CONFIG_PATH):
-        _Borg.__init__(self)
-
-        self.ctx = neptune.Context()
-        self.fallback_file = fallback_file
-        self.params = self._read_params()
-        self.numeric_channel = neptune.ChannelType.NUMERIC
-        self.image_channel = neptune.ChannelType.IMAGE
-        self.text_channel = neptune.ChannelType.TEXT
-
-    def channel_send(self, *args, **kwargs):
-        self.ctx.channel_send(*args, **kwargs)
-
-    def _read_params(self):
-        if self.ctx.params.__class__.__name__ == 'OfflineContextParams':
-            params = self._read_yaml().parameters
-        else:
-            params = self.ctx.params
-        return params
-
-    def _read_yaml(self):
-        with open(self.fallback_file) as f:
-            config = yaml.load(f)
-        return AttrDict(config)
+def read_yaml(fallback_file=NEPTUNE_CONFIG_PATH):
+    with open(fallback_file) as f:
+        config = yaml.load(f)
+    return AttrDict(config)
 
 
 def init_logger():
@@ -83,21 +62,6 @@ def init_logger():
 
 def get_logger():
     return logging.getLogger('salt-detection')
-
-
-def decompose(labeled):
-    nr_true = labeled.max()
-    masks = []
-    for i in range(1, nr_true + 1):
-        msk = labeled.copy()
-        msk[msk != i] = 0.
-        msk[msk == i] = 255.
-        masks.append(msk)
-
-    if not masks:
-        return [labeled]
-    else:
-        return masks
 
 
 def create_submission(meta, predictions):
@@ -138,9 +102,11 @@ def run_length_encoding(x):
     rle = []
     prev = -2
     for b in bs:
-        if (b > prev + 1): rle.extend((b + 1, 0))
+        if (b > prev + 1):
+            rle.extend((b + 1, 0))
         rle[-1] += 1
         prev = b
+
     return rle
 
 
@@ -435,3 +401,77 @@ def clean_object_from_memory(obj):
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+class FineTuneStep(Step):
+    def __init__(self,
+                 name,
+                 transformer,
+                 experiment_directory,
+                 input_data=None,
+                 input_steps=None,
+                 adapter=None,
+                 is_trainable=False,
+                 cache_output=False,
+                 persist_output=False,
+                 load_persisted_output=False,
+                 force_fitting=False,
+                 fine_tuning=False,
+                 persist_upstream_pipeline_structure=False):
+        super().__init__(name,
+                         transformer,
+                         experiment_directory,
+                         input_data=input_data,
+                         input_steps=input_steps,
+                         adapter=adapter,
+                         is_trainable=is_trainable,
+                         cache_output=cache_output,
+                         persist_output=persist_output,
+                         load_persisted_output=load_persisted_output,
+                         force_fitting=force_fitting,
+                         persist_upstream_pipeline_structure=persist_upstream_pipeline_structure)
+        self.fine_tuning = fine_tuning
+
+    def _cached_fit_transform(self, step_inputs):
+        if self.is_trainable:
+            if self.transformer_is_cached:
+                if self.force_fitting and self.fine_tuning:
+                    raise ValueError('only one of force_fitting or fine_tuning can be True')
+                elif self.force_fitting:
+                    logger.info('Step {}, fitting and transforming...'.format(self.name))
+                    step_output_data = self.transformer.fit_transform(**step_inputs)
+                    logger.info('Step {}, persisting transformer to the {}'
+                                .format(self.name, self.exp_dir_transformers_step))
+                    self.transformer.persist(self.exp_dir_transformers_step)
+                elif self.fine_tuning:
+                    logger.info('Step {}, loading transformer from the {}'
+                                .format(self.name, self.exp_dir_transformers_step))
+                    self.transformer.load(self.exp_dir_transformers_step)
+                    logger.info('Step {}, transforming...'.format(self.name))
+                    step_output_data = self.transformer.fit_transform(**step_inputs)
+                    self.transformer.persist(self.exp_dir_transformers_step)
+                else:
+                    logger.info('Step {}, loading transformer from the {}'
+                                .format(self.name, self.exp_dir_transformers_step))
+                    self.transformer.load(self.exp_dir_transformers_step)
+                    logger.info('Step {}, transforming...'.format(self.name))
+                    step_output_data = self.transformer.transform(**step_inputs)
+            else:
+                logger.info('Step {}, fitting and transforming...'.format(self.name))
+                step_output_data = self.transformer.fit_transform(**step_inputs)
+                logger.info('Step {}, persisting transformer to the {}'
+                            .format(self.name, self.exp_dir_transformers_step))
+                self.transformer.persist(self.exp_dir_transformers_step)
+        else:
+            logger.info('Step {}, transforming...'.format(self.name))
+            step_output_data = self.transformer.transform(**step_inputs)
+
+        if self.cache_output:
+            logger.info('Step {}, caching output to the {}'
+                        .format(self.name, self.exp_dir_cache_step))
+            self._persist_output(step_output_data, self.exp_dir_cache_step)
+        if self.persist_output:
+            logger.info('Step {}, persisting output to the {}'
+                        .format(self.name, self.exp_dir_outputs_step))
+            self._persist_output(step_output_data, self.exp_dir_outputs_step)
+        return step_output_data

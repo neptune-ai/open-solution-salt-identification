@@ -64,16 +64,17 @@ intensity_seq = iaa.Sequential([
     ])
 ], random_order=False)
 
-
-def crop_seq(crop_size):
-    seq = iaa.Sequential([affine_seq,
-                          RandomCropFixedSize(px=crop_size)], random_order=False)
-    return seq
+tta_intensity_seq = iaa.Sequential([
+    iaa.Noop()
+], random_order=False)
 
 
-def padding_seq(pad_size, pad_method):
-    seq = iaa.Sequential([PadFixed(pad=pad_size, pad_method=pad_method),
-                          ]).to_deterministic()
+def resize_pad_seq(resize_target_size, pad_method, pad_size):
+    seq = iaa.Sequential([
+        iaa.Scale({'height': resize_target_size, 'width': resize_target_size}),
+        PadFixed(pad=(pad_size, pad_size), pad_method=pad_method),
+        affine_seq,
+    ], random_order=False)
     return seq
 
 
@@ -132,8 +133,8 @@ def test_time_augmentation_transform(image, tta_parameters):
     if tta_parameters['lr_flip']:
         image = np.fliplr(image)
     if tta_parameters['color_shift']:
-        random_color_shift = reseed(intensity_seq, deterministic=False)
-        image = random_color_shift.augment_image(image)
+        tta_intensity = reseed(tta_intensity_seq, deterministic=False)
+        image = tta_intensity.augment_image(image)
     image = rotate(image, tta_parameters['rotation'])
     return image
 

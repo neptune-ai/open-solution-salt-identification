@@ -153,6 +153,20 @@ python main.py -- train--pipeline_name unet
 python main.py -- evaluate_predict --pipeline_name unet
 ```
 
+## References
+1.Lovash Loss
+
+```
+@InProceedings{Berman_2018_CVPR,
+author = {Berman, Maxim and Rannen Triki, Amal and Blaschko, Matthew B.},
+title = {The Lovász-Softmax Loss: A Tractable Surrogate for the Optimization of the Intersection-Over-Union Measure in Neural Networks},
+booktitle = {The IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+month = {June},
+year = {2018}
+}
+```
+
+
 ## Get involved
 You are welcome to contribute your code and ideas to this open solution. To get started:
 1. Check [competition project](https://github.com/neptune-ml/open-solution-salt-detection/projects/1) on GitHub to see what we are working on right now.

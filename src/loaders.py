@@ -329,7 +329,7 @@ class ImageSegmentationLoaderBasicTTA(ImageSegmentationLoaderBasic):
         return datagen, steps
 
 
-class ImageSegmentationLoaderCropPad(ImageSegmentationLoaderBasic):
+class ImageSegmentationLoaderResizePad(ImageSegmentationLoaderBasic):
     def __init__(self, train_mode, loader_params, dataset_params, augmentation_params):
         super().__init__(train_mode, loader_params, dataset_params, augmentation_params)
 
@@ -355,7 +355,7 @@ class ImageSegmentationLoaderCropPad(ImageSegmentationLoaderBasic):
             raise Exception('files must be png or json')
 
 
-class ImageSegmentationLoaderCropPadTTA(ImageSegmentationLoaderBasicTTA):
+class ImageSegmentationLoaderPadTTA(ImageSegmentationLoaderBasicTTA):
     def __init__(self, loader_params, dataset_params, augmentation_params):
         super().__init__(loader_params, dataset_params, augmentation_params)
 
