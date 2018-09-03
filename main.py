@@ -18,9 +18,14 @@ from common_blocks import utils
 CTX = neptune.Context()
 LOGGER = utils.init_logger()
 
-########################################
-# CONFIGS
-########################################
+
+#    ______   ______   .__   __.  _______  __    _______      _______.
+#   /      | /  __  \  |  \ |  | |   ____||  |  /  _____|    /       |
+#  |  ,----'|  |  |  | |   \|  | |  |__   |  | |  |  __     |   (----`
+#  |  |     |  |  |  | |  . `  | |   __|  |  | |  | |_ |     \   \    
+#  |  `----.|  `--'  | |  |\   | |  |     |  | |  |__| | .----)   |   
+#   \______| \______/  |__| \__| |__|     |__|  \______| |_______/    
+#                                                                     
 
 EXPERIMENT_DIR = '/output/experiment'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
@@ -239,9 +244,13 @@ CONFIG = AttrDict({
 })
 
 
-########################################
-# Steppy pipelines
-########################################
+#  .______    __  .______    _______  __       __  .__   __.  _______     _______.
+#  |   _  \  |  | |   _  \  |   ____||  |     |  | |  \ |  | |   ____|   /       |
+#  |  |_)  | |  | |  |_)  | |  |__   |  |     |  | |   \|  | |  |__     |   (----`
+#  |   ___/  |  | |   ___/  |   __|  |  |     |  | |  . `  | |   __|     \   \    
+#  |  |      |  | |  |      |  |____ |  `----.|  | |  |\   | |  |____.----)   |   
+#  | _|      |__| | _|      |_______||_______||__| |__| \__| |_______|_______/    
+#                                                                                 
 
 def unet(config, suffix='', train_mode=True):
     if train_mode:
@@ -263,9 +272,13 @@ def unet(config, suffix='', train_mode=True):
     return unet
 
 
-########################################
-# Execution
-########################################
+#   __________   ___  _______   ______  __    __  .___________. __    ______   .__   __. 
+#  |   ____\  \ /  / |   ____| /      ||  |  |  | |           ||  |  /  __  \  |  \ |  | 
+#  |  |__   \  V  /  |  |__   |  ,----'|  |  |  | `---|  |----`|  | |  |  |  | |   \|  | 
+#  |   __|   >   <   |   __|  |  |     |  |  |  |     |  |     |  | |  |  |  | |  . `  | 
+#  |  |____ /  .  \  |  |____ |  `----.|  `--'  |     |  |     |  | |  `--'  | |  |\   | 
+#  |_______/__/ \__\ |_______| \______| \______/      |__|     |__|  \______/  |__| \__| 
+#                                                                                        
 
 def prepare_metadata():
     LOGGER.info('creating metadata')
@@ -383,6 +396,14 @@ def predict():
     LOGGER.info('submission head \n\n{}'.format(submission.head()))
 
 
+#   __    __  .___________. __   __          _______.
+#  |  |  |  | |           ||  | |  |        /       |
+#  |  |  |  | `---|  |----`|  | |  |       |   (----`
+#  |  |  |  |     |  |     |  | |  |        \   \    
+#  |  `--'  |     |  |     |  | |  `----.----)   |   
+#   \______/      |__|     |__| |_______|_______/    
+#                                                    
+
 def calculate_scores(y_true, y_pred):
     iou = metrics.intersection_over_union(y_true, y_pred)
     iout = metrics.intersection_over_union_thresholds(y_true, y_pred)
@@ -430,6 +451,14 @@ def save_predictions(out_of_fold_train_predictions, out_of_fold_test_predictions
     LOGGER.info('submission saved to {}'.format(submission_filepath))
     LOGGER.info('submission head \n\n{}'.format(submission.head()))
 
+
+#  .___  ___.      ___       __  .__   __. 
+#  |   \/   |     /   \     |  | |  \ |  | 
+#  |  \  /  |    /  ^  \    |  | |   \|  | 
+#  |  |\/|  |   /  /_\  \   |  | |  . `  | 
+#  |  |  |  |  /  _____  \  |  | |  |\   | 
+#  |__|  |__| /__/     \__\ |__| |__| \__| 
+#                                          
 
 if __name__ == '__main__':
     prepare_metadata()
