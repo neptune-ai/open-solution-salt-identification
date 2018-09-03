@@ -24,16 +24,8 @@ from imgaug import augmenters as iaa
 import imgaug as ia
 import torch
 
-NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune_local.yaml')
+NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune.yaml')
 logger = get_logger()
-
-
-def read_params(ctx):
-    if ctx.params.__class__.__name__ == 'OfflineContextParams':
-        params = read_yaml().parameters
-    else:
-        params = ctx.params
-    return params
 
 
 def read_yaml(fallback_file=NEPTUNE_CONFIG_PATH):

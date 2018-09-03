@@ -29,7 +29,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 |solution 3|0.807|0.801|
 |solution 4|0.802|0.809|
 |solution 5|0.804|0.813|
-
+|solution 6|XXX|XXX|
 
 
 ## Start experimenting with ready-to-use code
@@ -56,13 +56,20 @@ project: USERNAME/PROJECT_NAME
 ```
 to your username and project name
 
-Prepare metadata. It only needs to be **done once**
+Prepare metadata. 
+Change the execution function in the `main.py`:
+
+```python
+if __name__ == '__main__':
+    prepare_metadata()
+```
+It only needs to be **done once**
 
 ```bash
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
---config configs/neptune.yaml \
-main.py prepare_metadata
+--config neptune.yaml \
+main.py
 
 ```
 
@@ -80,16 +87,32 @@ From now on we will load the metadata by changing the `neptune.yaml`
 
 and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
 
-Let's train the model by running:
+Let's train the model by changing the command in the `main.py` to:
+
+```python
+if __name__ == '__main__':
+    train_evaluate_predict_cv()
+```
+
+and running
 
 ```bash
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
---config configs/neptune.yaml \
+--config neptune.yaml \
 --input /input/metadata.csv \
-main.py train --pipeline_name unet
+main.py 
 
 ```
+
+You could have run it easily with both of those functions executed in the `main.py` :
+
+```python
+if __name__ == '__main__':
+    prepare_metadata()
+    train_evaluate_predict_cv()
+```
+but recalculating metadata every time you run your pipeline doesn't seem like a good idea :).
 
 The model will be saved in the:
 
@@ -97,24 +120,34 @@ The model will be saved in the:
   experiment_dir: /output/experiment
 ```
 
-So we when running evaluation we need to use this folder in our experiment. We do that by:
+and the `submission.csv` will be saved in `/output/experiment/submission.csv`
 
-changing `neptune.yaml` 
+You can easily use models trained during one experiment in other experiments.
+For example when running evaluation we need to use the previous model folder in our experiment. We do that by:
 
-```yaml
-  clone_experiment_dir_from: '/SAL-2/output/experiment'
+changing `main.py` 
+
+```python
+  CLONE_EXPERIMENT_DIR_FROM = '/SAL-2/output/experiment'
 ```
+
+and
+
+```python
+if __name__ == '__main__':
+    evaluate_predict_cv()
+```
+
 and running the following command:
 
 
 ```bash
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
---config configs/neptune.yaml \
+--config neptune.yaml \
 --input /input/metadata.csv \
 --input /SAL-2 \
-main.py evaluate_predict --pipeline_name unet
-
+main.py
 ```
 
 #### Local
@@ -124,35 +157,33 @@ neptune account login
 ```
 
 Prepare metadata
-
-```bash
-neptune run --config configs/neptune.yaml main.py prepare_metadata
+Change `main.py':
+```python
+if __name__ == '__main__':
+    prepare_metadata()
 ```
 
-Training
+run
 
 ```bash
-neptune run --config configs/neptune.yaml main.py train --pipeline_name unet
+neptune run --config neptune.yaml main.py prepare_metadata
 ```
 
-Inference
+Training and inference
+Change `main.py':
+```python
+if __name__ == '__main__':
+    train_evaluate_predict_cv()
+```
 
 ```bash
-neptune run --config configs/neptune.yaml main.py evaluate_predict --pipeline_name unet
+neptune run --config neptune.yaml main.py
 ```
 
 You can always run it with pure python :snake:
 
 ```bash
-python main.py prepare_metadata
-```
-
-```bash
-python main.py -- train--pipeline_name unet
-```
-
-```bash
-python main.py -- evaluate_predict --pipeline_name unet
+python main.py 
 ```
 
 ## References

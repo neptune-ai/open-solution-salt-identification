@@ -19,8 +19,7 @@ output
 output/
 *.log
 target/
-devbook.ipynb
-devbook_local.ipynb
+
 
 # Distribution / packaging
 .Python
