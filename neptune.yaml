@@ -13,28 +13,23 @@ metric:
 #pip-requirements-file: requirements.txt
 
 exclude:
-  - .git
-  - .idea
-  - .ipynb_checkpoints
-  - output
-  - imgs
-  - neptune.log
-  - offline_job.log
-  - notebooks
+- .git
+- .idea
+- .ipynb_checkpoints
+- output
+- imgs
+- neptune.log
+- offline_job.log
+- notebooks
 
 parameters:
-# Data Paths
-#  train_images_dir: /public/challenges/kaggle-salt-identification/train
-#  test_images_dir: /public/challenges/kaggle-salt-identification/test
-#  metadata_filepath: /input/metadata.csv # if you are running prepare_metadata change it to  /output/metadata.csv here
-#  depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
+  # Data Paths
+  train_images_dir: /public/challenges/kaggle-salt-identification/train
+  test_images_dir: /public/challenges/kaggle-salt-identification/test
+  metadata_filepath: /input/metadata.csv # if you are running prepare_metadata change it to  /output/metadata.csv here
+  depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
 
-  train_images_dir: /mnt/ml-team/minerva/open-solutions/salt/data/train
-  test_images_dir: /mnt/ml-team/minerva/open-solutions/salt/data/test
-  metadata_filepath: /mnt/ml-team/minerva/open-solutions/salt/files/metadata.csv
-  depths_filepath: /mnt/ml-team/minerva/open-solutions/salt/data/depths.csv
-
- # Execution
+  # Execution
   overwrite: 1
   num_workers: 4
   num_threads: 4
