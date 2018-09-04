@@ -4,16 +4,14 @@ from steppy.base import Step, IdentityOperation
 from steppy.adapter import Adapter, E
 
 from . import loaders
-from .utils import make_apply_transformer, FineTuneStep
-from .postprocessing import crop_image, resize_image, binarize
+from .utils import make_apply_transformer
+from .postprocessing import binarize
 
 
 def preprocessing_train(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
-        Loader = loaders.ImageSegmentationLoaderResizePad
         loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResize
         loader_config = config.loaders.resize
     else:
         raise NotImplementedError
@@ -47,7 +45,7 @@ def preprocessing_train(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(train_mode=True, **loader_config),
+                  transformer=loaders.ImageSegmentationLoader(train_mode=True, **loader_config),
                   input_steps=[reader_train, reader_inference],
                   adapter=Adapter({'X': E(reader_train.name, 'X'),
                                    'y': E(reader_train.name, 'y'),
@@ -60,10 +58,8 @@ def preprocessing_train(config, model_name='unet', suffix=''):
 
 def preprocessing_inference(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
-        Loader = loaders.ImageSegmentationLoaderResizePad
         loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResize
         loader_config = config.loaders.resize
     else:
         raise NotImplementedError
@@ -86,7 +82,7 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(train_mode=False, **loader_config),
+                  transformer=loaders.ImageSegmentationLoader(train_mode=False, **loader_config),
                   input_steps=[reader_inference],
                   adapter=Adapter({'X': E(reader_inference.name, 'X'),
                                    'y': E(reader_inference.name, 'y'),
@@ -98,10 +94,8 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
 
 def preprocessing_inference_tta(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
-        Loader = loaders.ImageSegmentationLoaderPadTTA
         loader_config = config.loaders.pad_tta
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResizeTTA
         loader_config = config.loaders.resize_tta
     else:
         raise NotImplementedError
@@ -135,7 +129,7 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(**loader_config),
+                  transformer=loaders.ImageSegmentationLoaderTTA(**loader_config),
                   input_steps=[tta_generator],
                   adapter=Adapter({'X': E(tta_generator.name, 'X_tta'),
                                    'tta_params': E(tta_generator.name, 'tta_params'),
@@ -158,28 +152,12 @@ def aggregator(name, model, tta_generator, experiment_directory, config):
 
 
 def mask_postprocessing(config, suffix=''):
-    if config.general.loader_mode == 'resize_and_pad':
-        size_adjustment_function = partial(crop_image, target_size=config.general.original_size)
-    elif config.general.loader_mode == 'resize':
-        size_adjustment_function = partial(resize_image, target_size=config.general.original_size)
-    else:
-        raise NotImplementedError
-
-    mask_resize = Step(name='mask_resize{}'.format(suffix),
-                       transformer=make_apply_transformer(size_adjustment_function,
-                                                          output_name='resized_images',
-                                                          apply_on=['images']),
-                       input_data=['input_masks'],
-                       adapter=Adapter({'images': E('input_masks', 'mask_prediction'),
-                                        }),
-                       experiment_directory=config.execution.experiment_dir)
-
     binarizer = Step(name='binarizer{}'.format(suffix),
                      transformer=make_apply_transformer(partial(binarize, threshold=config.thresholder.threshold_masks),
                                                         output_name='binarized_images',
                                                         apply_on=['images']),
-                     input_steps=[mask_resize],
-                     adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                     input_data=['input_masks'],
+                     adapter=Adapter({'images': E('input_masks', 'resized_images'),
                                       }),
                      experiment_directory=config.execution.experiment_dir)
     return binarizer
