@@ -29,7 +29,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 |solution 3|0.807|0.801|
 |solution 4|0.802|0.809|
 |solution 5|0.804|0.813|
-|solution 6|0.812|0.820|
+|solution 6|0.821|0.827|
 
 
 ## Start experimenting with ready-to-use code
