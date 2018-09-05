@@ -35,7 +35,7 @@ parameters:
   image_source: disk
   pin_memory: 1
   loader_mode: resize_and_pad
-  pad_method: reflect
+  pad_method: edge
   resize_target_size: 102
   pad_size: 13
   target_format: 'png'
