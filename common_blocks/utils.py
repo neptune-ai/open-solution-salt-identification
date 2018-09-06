@@ -467,3 +467,8 @@ class FineTuneStep(Step):
                         .format(self.name, self.exp_dir_outputs_step))
             self._persist_output(step_output_data, self.exp_dir_outputs_step)
         return step_output_data
+
+
+def pytorch_where(cond, x_1, x_2):
+    cond = cond.float()
+    return (cond * x_1) + ((1 - cond) * x_2)

@@ -6,10 +6,10 @@ import torch.nn as nn
 from functools import partial
 from toolkit.pytorch_transformers.models import Model
 
-from .utils import sigmoid, softmax, get_list_of_image_predictions
+from .utils import sigmoid, softmax, get_list_of_image_predictions, pytorch_where
 from . import callbacks as cbk
 from .unet_models import UNetResNet, SaltUNet, SaltLinkNet
-from .lovash_losses import lovasz_softmax
+from .lovasz_losses import lovasz_hinge
 
 PRETRAINED_NETWORKS = {'ResNet34': {'model': UNetResNet,
                                     'model_config': {'encoder_depth': 34,
@@ -162,15 +162,22 @@ class PyTorchUNet(Model):
 
     def set_loss(self):
         if self.activation_func == 'softmax':
-            loss_function = lovash_loss
-        elif self.activation_func == 'sigmoid':
-            loss_function = partial(mixed_dice_bce_loss,
+            loss_function = partial(mixed_dice_cross_entropy_loss,
                                     dice_loss=multiclass_dice_loss,
-                                    bce_loss=nn.BCEWithLogitsLoss(),
-                                    dice_activation='sigmoid',
+                                    cross_entropy_loss=nn.CrossEntropyLoss(),
+                                    dice_activation='softmax',
                                     dice_weight=self.architecture_config['model_params']['dice_weight'],
-                                    bce_weight=self.architecture_config['model_params']['bce_weight']
+                                    cross_entropy_weight=self.architecture_config['model_params']['bce_weight']
                                     )
+        elif self.activation_func == 'sigmoid':
+            loss_function = lovasz_loss
+            # loss_function = partial(mixed_dice_bce_loss,
+            #                         dice_loss=multiclass_dice_loss,
+            #                         bce_loss=nn.BCEWithLogitsLoss(),
+            #                         dice_activation='sigmoid',
+            #                         dice_weight=self.architecture_config['model_params']['dice_weight'],
+            #                         bce_weight=self.architecture_config['model_params']['bce_weight']
+            #                         )
         else:
             raise Exception('Only softmax and sigmoid activations are allowed')
         self.loss_function = [('mask', loss_function, 1.0)]
@@ -223,12 +230,12 @@ class DiceLoss(nn.Module):
 
     def forward(self, output, target):
         return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
-def lovash_loss(output, target):
-    target = target[:, 1, :, :].long()
-    return lovasz_softmax(output, target)
+def lovasz_loss(output, target):
+    target = target.long()
+    return lovasz_hinge(output, target)
 
 
 def mixed_dice_bce_loss(output, target, dice_weight=0.2, dice_loss=None,

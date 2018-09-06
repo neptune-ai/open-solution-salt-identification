@@ -30,7 +30,7 @@ LOGGER = utils.init_logger()
 
 EXPERIMENT_DIR = '/output/experiment'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
-OVERWRITE_EXPERIMENT_DIR = False
+OVERWRITE_EXPERIMENT_DIR = True
 DEV_MODE = False
 
 if OVERWRITE_EXPERIMENT_DIR and os.path.isdir(EXPERIMENT_DIR):
@@ -769,3 +769,4 @@ def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_p
 if __name__ == '__main__':
     prepare_metadata()
     train_evaluate_predict_cv()
+
