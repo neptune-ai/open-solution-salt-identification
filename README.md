@@ -156,6 +156,8 @@ Login to neptune if you want to use it
 neptune account login
 ```
 
+Change data filepaths to your local ones in `neptune.yaml` and `main.py`.
+
 Prepare metadata
 Change `main.py':
 ```python
