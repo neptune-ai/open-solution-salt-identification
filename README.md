@@ -58,7 +58,8 @@ Change the execution function in the `main.py`:
 if __name__ == '__main__':
     prepare_metadata()
 ```
-It only needs to be **done once**
+
+Then run the following command:
 
 ```bash
 neptune send --worker m-p100 \
@@ -68,19 +69,23 @@ main.py
 
 ```
 
-They will be saved in the
+Remember metadata preparation only needs to be **done once**
+
+
+It will be saved in the
 
 ```yaml
   metadata_filepath: /output/metadata.csv
 ```
 
-From now on we will load the metadata by changing the `neptune.yaml`
+From now on we will load the metadata from **PREVIOUS EXPERIMENT**. 
+Do that by changing the `neptune.yaml`
 
 ```yaml
   metadata_filepath: /input/metadata.csv
 ```
 
-and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
+and adding the path to the experiment that generated metadata say SAL-1 to every command `--input /SAL-1/output/metadata.csv`
 
 Let's train the model by changing the command in the `main.py` to:
 
@@ -97,7 +102,7 @@ and running
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config neptune.yaml \
---input /input/metadata.csv \
+--input /SAL-1/output/metadata.csv \
 main.py 
 
 ```
@@ -145,7 +150,7 @@ and running the following command:
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config neptune.yaml \
---input /input/metadata.csv \
+--input /SAL-1/output/metadata.csv \
 --input /SAL-2 \
 main.py
 ```
