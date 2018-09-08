@@ -35,7 +35,7 @@ You can jump start your participation in the competition by using our starter pa
 ## Installation
 1. Clone repository and install requirements (*use Python3.5*) `pip3 install -r requirements.txt`
 1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_
-1. Run experiment based on U-Net. See instrution below:
+1. Run experiment based on U-Net. See instruction below:
 
 ## Start experiment in the cloud
 ```bash
@@ -198,7 +198,7 @@ python main.py
 ## Get involved
 You are welcome to contribute your code and ideas to this open solution. To get started:
 1. Check [competition project](https://github.com/neptune-ml/open-solution-salt-detection/projects/1) on GitHub to see what we are working on right now.
-1. Express your interest in paticular task by writing comment in this task, or by creating new one with your fresh idea.
+1. Express your interest in particular task by writing comment in this task, or by creating new one with your fresh idea.
 1. We will get back to you quickly in order to start working together.
 1. Check [CONTRIBUTING](CONTRIBUTING.md) for some more information.
 
