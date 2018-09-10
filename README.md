@@ -16,7 +16,8 @@ We are building entirely open solution to this competition. Specifically:
 
 ## Our solutions so far
 
-| Link to Experiments | CV | LB ||:---:|:---:|:---:|
+| Link to Experiments | CV | LB |
+|:---:|:---:|:---:|
 |[solution 1](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=05e37f9f-c50c-4ba0-8065-92cd74eb9052)|0.413|0.745|
 |[solution 2](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=57f36441-f0aa-4071-a05b-eb45fa0648e5)|0.794|0.798|
 |[solution 3](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=c92051e6-97b6-40ba-b293-52fba301f9d7)|0.807|0.801|
