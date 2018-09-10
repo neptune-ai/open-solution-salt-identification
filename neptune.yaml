@@ -1,9 +1,7 @@
-project: neptune-ml/Salt-Detection
-
 #project: USERNAME/PROJECT_NAME
 
 name: tgs_salt_identification_challenge
-tags: [solution-1]
+tags: [solution-4]
 
 metric:
   channel: 'IOUT'
@@ -33,14 +31,14 @@ parameters:
   overwrite: 1
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-3'
+  kaggle_message: 'solution-4'
   image_source: disk
   pin_memory: 1
   loader_mode: resize
   pad_method: symmetric
   target_format: 'png'
-  dev_mode_size: 20
-  n_cv_splits: 10
+  dev_mode_size: 100
+  n_cv_splits: 6
   shuffle: 1
 
   # General parameters

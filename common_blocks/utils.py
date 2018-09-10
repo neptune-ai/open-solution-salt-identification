@@ -10,13 +10,14 @@ import gc
 
 import numpy as np
 import pandas as pd
+import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 from attrdict import AttrDict
 from tqdm import tqdm
 from pycocotools import mask as cocomask
 from sklearn.model_selection import BaseCrossValidator
-from steppy.base import BaseTransformer
+from steppy.base import BaseTransformer, Step
 from steppy.utils import get_logger
 import yaml
 from imgaug import augmenters as iaa
@@ -93,9 +94,11 @@ def run_length_encoding(x):
     rle = []
     prev = -2
     for b in bs:
-        if (b > prev + 1): rle.extend((b + 1, 0))
+        if (b > prev + 1):
+            rle.extend((b + 1, 0))
         rle[-1] += 1
         prev = b
+
     return rle
 
 
