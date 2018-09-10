@@ -24,7 +24,7 @@ We are building entirely open solution to this competition. Specifically:
 |solution 4|0.802|0.809|
 |solution 5|0.804|0.813|
 |solution 6|0.821|0.827|
-|solution 6|0.829|0.837|
+|solution 7|0.829|0.837|
 
 ## Disclaimer
 In this open source solution you will find references to the [neptune.ml](https://neptune.ml). It is free platform for community Users, which we use daily to keep track of our experiments. Please note that using neptune.ml is not necessary to proceed with this solution. You may run it as plain Python script :snake:.
