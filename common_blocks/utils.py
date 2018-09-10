@@ -8,7 +8,6 @@ from itertools import chain
 from collections import Iterable
 import gc
 
-from deepsense import neptune
 import numpy as np
 import pandas as pd
 import torch
@@ -18,49 +17,21 @@ from attrdict import AttrDict
 from tqdm import tqdm
 from pycocotools import mask as cocomask
 from sklearn.model_selection import BaseCrossValidator
-from steppy.base import BaseTransformer
+from steppy.base import BaseTransformer, Step
+from steppy.utils import get_logger
 import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
 import torch
 
 NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune.yaml')
+logger = get_logger()
 
 
-# Alex Martelli's 'Borg'
-# http://python-3-patterns-idioms-test.readthedocs.io/en/latest/Singleton.html
-class _Borg:
-    _shared_state = {}
-
-    def __init__(self):
-        self.__dict__ = self._shared_state
-
-
-class NeptuneContext(_Borg):
-    def __init__(self, fallback_file=NEPTUNE_CONFIG_PATH):
-        _Borg.__init__(self)
-
-        self.ctx = neptune.Context()
-        self.fallback_file = fallback_file
-        self.params = self._read_params()
-        self.numeric_channel = neptune.ChannelType.NUMERIC
-        self.image_channel = neptune.ChannelType.IMAGE
-        self.text_channel = neptune.ChannelType.TEXT
-
-    def channel_send(self, *args, **kwargs):
-        self.ctx.channel_send(*args, **kwargs)
-
-    def _read_params(self):
-        if self.ctx.params.__class__.__name__ == 'OfflineContextParams':
-            params = self._read_yaml().parameters
-        else:
-            params = self.ctx.params
-        return params
-
-    def _read_yaml(self):
-        with open(self.fallback_file) as f:
-            config = yaml.load(f)
-        return AttrDict(config)
+def read_yaml(fallback_file=NEPTUNE_CONFIG_PATH):
+    with open(fallback_file) as f:
+        config = yaml.load(f)
+    return AttrDict(config)
 
 
 def init_logger():
@@ -83,21 +54,6 @@ def init_logger():
 
 def get_logger():
     return logging.getLogger('salt-detection')
-
-
-def decompose(labeled):
-    nr_true = labeled.max()
-    masks = []
-    for i in range(1, nr_true + 1):
-        msk = labeled.copy()
-        msk[msk != i] = 0.
-        msk[msk == i] = 255.
-        masks.append(msk)
-
-    if not masks:
-        return [labeled]
-    else:
-        return masks
 
 
 def create_submission(meta, predictions):
@@ -138,12 +94,10 @@ def run_length_encoding(x):
     rle = []
     prev = -2
     for b in bs:
-        if (b > prev + 1): rle.extend((b + 1, 0))
+        if (b > prev + 1):
+            rle.extend((b + 1, 0))
         rle[-1] += 1
         prev = b
-
-    if len(rle) != 0 and rle[-1] + rle[-2] == x.size:
-        rle[-2] = rle[-2] - 1
 
     return rle
 
