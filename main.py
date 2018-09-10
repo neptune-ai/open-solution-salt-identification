@@ -1,3 +1,4 @@
+from functools import partial
 import os
 import shutil
 
@@ -6,7 +7,7 @@ import neptune
 import numpy as np
 import pandas as pd
 from sklearn.externals import joblib
-from steppy.base import Step
+from steppy.base import Step, IdentityOperation
 from steppy.adapter import Adapter, E
 
 from common_blocks import augmentation as aug
@@ -14,18 +15,18 @@ from common_blocks import metrics
 from common_blocks import models
 from common_blocks import pipelines
 from common_blocks import utils
+from common_blocks import postprocessing
 
 CTX = neptune.Context()
 LOGGER = utils.init_logger()
 
-
 #    ______   ______   .__   __.  _______  __    _______      _______.
 #   /      | /  __  \  |  \ |  | |   ____||  |  /  _____|    /       |
 #  |  ,----'|  |  |  | |   \|  | |  |__   |  | |  |  __     |   (----`
-#  |  |     |  |  |  | |  . `  | |   __|  |  | |  | |_ |     \   \    
-#  |  `----.|  `--'  | |  |\   | |  |     |  | |  |__| | .----)   |   
-#   \______| \______/  |__| \__| |__|     |__|  \______| |_______/    
-#                                                                     
+#  |  |     |  |  |  | |  . `  | |   __|  |  | |  | |_ |     \   \
+#  |  `----.|  `--'  | |  |\   | |  |     |  | |  |__| | .----)   |
+#   \______| \______/  |__| \__| |__|     |__|  \______| |_______/
+#
 
 EXPERIMENT_DIR = '/output/experiment'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
@@ -247,10 +248,10 @@ CONFIG = AttrDict({
 #  .______    __  .______    _______  __       __  .__   __.  _______     _______.
 #  |   _  \  |  | |   _  \  |   ____||  |     |  | |  \ |  | |   ____|   /       |
 #  |  |_)  | |  | |  |_)  | |  |__   |  |     |  | |   \|  | |  |__     |   (----`
-#  |   ___/  |  | |   ___/  |   __|  |  |     |  | |  . `  | |   __|     \   \    
-#  |  |      |  | |  |      |  |____ |  `----.|  | |  |\   | |  |____.----)   |   
-#  | _|      |__| | _|      |_______||_______||__| |__| \__| |_______|_______/    
-#                                                                                 
+#  |   ___/  |  | |   ___/  |   __|  |  |     |  | |  . `  | |   __|     \   \
+#  |  |      |  | |  |      |  |____ |  `----.|  | |  |\   | |  |____.----)   |
+#  | _|      |__| | _|      |_______||_______||__| |__| \__| |_______|_______/
+#
 
 def unet(config, suffix='', train_mode=True):
     if train_mode:
@@ -269,16 +270,73 @@ def unet(config, suffix='', train_mode=True):
                 is_trainable=True,
                 experiment_directory=config.execution.experiment_dir)
 
-    return unet
+    if config.general.loader_mode == 'resize_and_pad':
+        size_adjustment_function = partial(postprocessing.crop_image, target_size=config.general.original_size)
+    elif config.general.loader_mode == 'resize':
+        size_adjustment_function = partial(postprocessing.resize_image, target_size=config.general.original_size)
+    else:
+        raise NotImplementedError
+
+    mask_resize = Step(name='mask_resize{}'.format(suffix),
+                       transformer=utils.make_apply_transformer(size_adjustment_function,
+                                                                output_name='resized_images',
+                                                                apply_on=['images']),
+                       input_steps=[unet],
+                       adapter=Adapter({'images': E(unet.name, 'mask_prediction'),
+                                        }),
+                       experiment_directory=config.execution.experiment_dir)
+
+    return mask_resize
 
 
-#   __________   ___  _______   ______  __    __  .___________. __    ______   .__   __. 
-#  |   ____\  \ /  / |   ____| /      ||  |  |  | |           ||  |  /  __  \  |  \ |  | 
-#  |  |__   \  V  /  |  |__   |  ,----'|  |  |  | `---|  |----`|  | |  |  |  | |   \|  | 
-#  |   __|   >   <   |   __|  |  |     |  |  |  |     |  |     |  | |  |  |  | |  . `  | 
-#  |  |____ /  .  \  |  |____ |  `----.|  `--'  |     |  |     |  | |  `--'  | |  |\   | 
-#  |_______/__/ \__\ |_______| \______| \______/      |__|     |__|  \______/  |__| \__| 
-#                                                                                        
+def unet_tta(config, suffix=''):
+    preprocessing, tta_generator = pipelines.preprocessing_inference_tta(config, model_name='unet')
+
+    unet = Step(name='unet{}'.format(suffix),
+                transformer=models.PyTorchUNet(**config.model['unet']),
+                input_data=['callback_input'],
+                input_steps=[preprocessing],
+                is_trainable=True,
+                experiment_directory=config.execution.experiment_dir)
+
+    tta_aggregator = pipelines.aggregator('tta_aggregator{}'.format(suffix), unet,
+                                          tta_generator=tta_generator,
+                                          experiment_directory=config.execution.experiment_dir,
+                                          config=config.tta_aggregator)
+
+    prediction_renamed = Step(name='prediction_renamed{}'.format(suffix),
+                              transformer=IdentityOperation(),
+                              input_steps=[tta_aggregator],
+                              adapter=Adapter({'mask_prediction': E(tta_aggregator.name, 'aggregated_prediction')
+                                               }),
+                              experiment_directory=config.execution.experiment_dir)
+
+    if config.general.loader_mode == 'resize_and_pad':
+        size_adjustment_function = partial(postprocessing.crop_image, target_size=config.general.original_size)
+    elif config.general.loader_mode == 'resize':
+        size_adjustment_function = partial(postprocessing.resize_image, target_size=config.general.original_size)
+    else:
+        raise NotImplementedError
+
+    mask_resize = Step(name='mask_resize{}'.format(suffix),
+                       transformer=utils.make_apply_transformer(size_adjustment_function,
+                                                                output_name='resized_images',
+                                                                apply_on=['images']),
+                       input_steps=[prediction_renamed],
+                       adapter=Adapter({'images': E(prediction_renamed.name, 'mask_prediction'),
+                                        }),
+                       experiment_directory=config.execution.experiment_dir)
+
+    return mask_resize
+
+
+#   __________   ___  _______   ______  __    __  .___________. __    ______   .__   __.
+#  |   ____\  \ /  / |   ____| /      ||  |  |  | |           ||  |  /  __  \  |  \ |  |
+#  |  |__   \  V  /  |  |__   |  ,----'|  |  |  | `---|  |----`|  | |  |  |  | |   \|  |
+#  |   __|   >   <   |   __|  |  |     |  |  |  |     |  |     |  | |  |  |  | |  . `  |
+#  |  |____ /  .  \  |  |____ |  `----.|  `--'  |     |  |     |  | |  `--'  | |  |\   |
+#  |_______/__/ \__\ |_______| \______| \______/      |__|     |__|  \______/  |__| \__|
+#
 
 def prepare_metadata():
     LOGGER.info('creating metadata')
@@ -290,8 +348,6 @@ def prepare_metadata():
 
 
 def train():
-    LOGGER.info('training')
-
     meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_train = meta[meta['is_train'] == 1]
 
@@ -318,8 +374,6 @@ def train():
 
 
 def evaluate():
-    LOGGER.info('evaluating')
-
     meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_train = meta[meta['is_train'] == 1]
 
@@ -362,8 +416,6 @@ def evaluate():
 
 
 def predict():
-    LOGGER.info('predicting')
-
     meta = pd.read_csv(PARAMS.metadata_filepath)
     meta_test = meta[meta['is_train'] == 0]
 
@@ -396,13 +448,261 @@ def predict():
     LOGGER.info('submission head \n\n{}'.format(submission.head()))
 
 
+def train_evaluate_cv():
+    meta = pd.read_csv(PARAMS.metadata_filepath)
+    if DEV_MODE:
+        meta = meta.sample(PARAMS.dev_mode_size, random_state=SEED)
+
+    meta_train = meta[meta['is_train'] == 1]
+
+    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+
+    fold_iou, fold_iout = [], []
+    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+        train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
+
+        LOGGER.info('Started fold {}'.format(fold_id))
+        iou, iout, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
+        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+
+        fold_iou.append(iou)
+        fold_iout.append(iout)
+
+    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+
+    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+
+
+def train_evaluate_predict_cv():
+    meta = pd.read_csv(PARAMS.metadata_filepath)
+    if DEV_MODE:
+        meta = meta.sample(PARAMS.dev_mode_size, random_state=SEED)
+
+    meta_train = meta[meta['is_train'] == 1]
+    meta_test = meta[meta['is_train'] == 0]
+
+    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+
+    fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
+    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+        train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
+
+        LOGGER.info('Started fold {}'.format(fold_id))
+        iou, iout, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
+                                                                                            valid_data_split,
+                                                                                            meta_test,
+                                                                                            fold_id)
+
+        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+
+        fold_iou.append(iou)
+        fold_iout.append(iout)
+        out_of_fold_train_predictions.append(out_of_fold_prediction)
+        out_of_fold_test_predictions.append(test_prediction)
+
+    train_ids, train_predictions = [], []
+    for idx_fold, train_pred_fold in out_of_fold_train_predictions:
+        train_ids.extend(idx_fold)
+        train_predictions.extend(train_pred_fold)
+
+    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+
+    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+
+    save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
+
+
+def evaluate_cv():
+    meta = pd.read_csv(PARAMS.metadata_filepath)
+    if DEV_MODE:
+        meta = meta.sample(PARAMS.dev_mode_size, random_state=SEED)
+
+    meta_train = meta[meta['is_train'] == 1]
+
+    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+
+    fold_iou, fold_iout = [], []
+    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+        valid_data_split = meta_train.iloc[valid_idx]
+
+        LOGGER.info('Started fold {}'.format(fold_id))
+        iou, iout, _ = fold_evaluate_loop(valid_data_split, fold_id)
+        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+
+        fold_iou.append(iou)
+        fold_iout.append(iout)
+
+    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+
+    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+
+
+def evaluate_predict_cv():
+    meta = pd.read_csv(PARAMS.metadata_filepath)
+    if DEV_MODE:
+        meta = meta.sample(PARAMS.dev_mode_size, random_state=SEED)
+
+    meta_train = meta[meta['is_train'] == 1]
+    meta_test = meta[meta['is_train'] == 0]
+
+    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+
+    fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
+    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+        valid_data_split = meta_train.iloc[valid_idx]
+
+        LOGGER.info('Started fold {}'.format(fold_id))
+        iou, iout, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
+                                                                                        meta_test,
+                                                                                        fold_id)
+
+        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+
+        fold_iou.append(iou)
+        fold_iout.append(iout)
+        out_of_fold_train_predictions.append(out_of_fold_prediction)
+        out_of_fold_test_predictions.append(test_prediction)
+
+    train_ids, train_predictions = [], []
+    for idx_fold, train_pred_fold in out_of_fold_train_predictions:
+        train_ids.extend(idx_fold)
+        train_predictions.extend(train_pred_fold)
+
+    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+
+    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+    save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
+
+
+def fold_fit_evaluate_predict_loop(train_data_split, valid_data_split, test, fold_id):
+    iou, iout, predicted_masks_valid = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
+
+    test_pipe_input = {'input': {'meta': test
+                                 },
+                       'callback_input': {'meta_valid': None
+                                          }
+                       }
+    pipeline_network = unet(config=CONFIG, suffix='_fold_{}'.format(fold_id), train_mode=False)
+    LOGGER.info('Start pipeline transform on test')
+    pipeline_network.clean_cache()
+    predicted_masks_test = pipeline_network.transform(test_pipe_input)
+    utils.clean_object_from_memory(pipeline_network)
+
+    predicted_masks_test = predicted_masks_test['resized_images']
+    return iou, iout, predicted_masks_valid, predicted_masks_test
+
+
+def fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id):
+    train_pipe_input = {'input': {'meta': train_data_split
+                                  },
+                        'callback_input': {'meta_valid': valid_data_split
+                                           }
+                        }
+
+    valid_pipe_input = {'input': {'meta': valid_data_split
+                                  },
+                        'callback_input': {'meta_valid': None
+                                           }
+                        }
+    valid_ids = valid_data_split[ID_COLUMN].tolist()
+
+    LOGGER.info('Start pipeline fit and transform on train')
+
+    config = add_fold_id_suffix(CONFIG, fold_id)
+
+    pipeline_network = unet(config=config, suffix='_fold_{}'.format(fold_id), train_mode=True)
+    pipeline_network.clean_cache()
+    pipeline_network.fit_transform(train_pipe_input)
+    utils.clean_object_from_memory(pipeline_network)
+
+    LOGGER.info('Start pipeline transform on valid')
+    pipeline_network = unet(config=config, suffix='_fold_{}'.format(fold_id), train_mode=False)
+    pipeline_postprocessing = pipelines.mask_postprocessing(config=config, suffix='_fold_{}'.format(fold_id))
+    pipeline_network.clean_cache()
+    pipeline_postprocessing.clean_cache()
+    predicted_masks_valid = pipeline_network.transform(valid_pipe_input)
+    valid_pipe_masks = {'input_masks': predicted_masks_valid
+                        }
+    output_valid = pipeline_postprocessing.transform(valid_pipe_masks)
+    utils.clean_object_from_memory(pipeline_network)
+
+    y_pred_valid = output_valid['binarized_images']
+    y_true_valid = utils.read_masks(valid_data_split[Y_COLUMN].values)
+
+    iou, iout = calculate_scores(y_true_valid, y_pred_valid)
+
+    predicted_masks_valid = predicted_masks_valid['resized_images']
+    return iou, iout, (valid_ids, predicted_masks_valid)
+
+
+def fold_evaluate_predict_loop(valid_data_split, test, fold_id):
+    iou, iout, predicted_masks_valid = fold_evaluate_loop(valid_data_split, fold_id)
+
+    test_pipe_input = {'input': {'meta': test
+                                 },
+                       'callback_input': {'meta_valid': None
+                                          }
+                       }
+    pipeline_network = unet(config=CONFIG, suffix='_fold_{}'.format(fold_id), train_mode=False)
+    LOGGER.info('Start pipeline transform on test')
+    pipeline_network.clean_cache()
+    predicted_masks_test = pipeline_network.transform(test_pipe_input)
+    utils.clean_object_from_memory(pipeline_network)
+
+    predicted_masks_test = predicted_masks_test['resized_images']
+    return iou, iout, predicted_masks_valid, predicted_masks_test
+
+
+def fold_evaluate_loop(valid_data_split, fold_id):
+    valid_pipe_input = {'input': {'meta': valid_data_split
+                                  },
+                        'callback_input': {'meta_valid': None
+                                           }
+                        }
+    valid_ids = valid_data_split[ID_COLUMN].tolist()
+
+    LOGGER.info('Start pipeline transform on valid')
+    pipeline_network = unet(config=CONFIG, suffix='_fold_{}'.format(fold_id), train_mode=False)
+    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG, suffix='_fold_{}'.format(fold_id))
+    pipeline_network.clean_cache()
+    pipeline_postprocessing.clean_cache()
+    predicted_masks_valid = pipeline_network.transform(valid_pipe_input)
+    valid_pipe_masks = {'input_masks': predicted_masks_valid
+                        }
+    output_valid = pipeline_postprocessing.transform(valid_pipe_masks)
+    utils.clean_object_from_memory(pipeline_network)
+
+    y_pred_valid = output_valid['binarized_images']
+    y_true_valid = utils.read_masks(valid_data_split[Y_COLUMN].values)
+
+    iou, iout = calculate_scores(y_true_valid, y_pred_valid)
+    predicted_masks_valid = predicted_masks_valid['resized_images']
+    return iou, iout, (valid_ids, predicted_masks_valid)
+
+
 #   __    __  .___________. __   __          _______.
 #  |  |  |  | |           ||  | |  |        /       |
 #  |  |  |  | `---|  |----`|  | |  |       |   (----`
-#  |  |  |  |     |  |     |  | |  |        \   \    
-#  |  `--'  |     |  |     |  | |  `----.----)   |   
-#   \______/      |__|     |__| |_______|_______/    
-#                                                    
+#  |  |  |  |     |  |     |  | |  |        \   \
+#  |  `--'  |     |  |     |  | |  `----.----)   |
+#   \______/      |__|     |__| |_______|_______/
+#
 
 def calculate_scores(y_true, y_pred):
     iou = metrics.intersection_over_union(y_true, y_pred)
@@ -410,16 +710,56 @@ def calculate_scores(y_true, y_pred):
     return iou, iout
 
 
-#  .___  ___.      ___       __  .__   __. 
-#  |   \/   |     /   \     |  | |  \ |  | 
-#  |  \  /  |    /  ^  \    |  | |   \|  | 
-#  |  |\/|  |   /  /_\  \   |  | |  . `  | 
-#  |  |  |  |  /  _____  \  |  | |  |\   | 
-#  |__|  |__| /__/     \__\ |__| |__| \__| 
-#                                          
+def add_fold_id_suffix(config, fold_id):
+    config['model']['unet']['callbacks_config']['neptune_monitor']['model_name'] = 'unet_{}'.format(fold_id)
+    checkpoint_filepath = config['model']['unet']['callbacks_config']['model_checkpoint']['filepath']
+    fold_checkpoint_filepath = checkpoint_filepath.replace('unet/best.torch', 'unet_{}/best.torch'.format(fold_id))
+    config['model']['unet']['callbacks_config']['model_checkpoint']['filepath'] = fold_checkpoint_filepath
+    return config
+
+
+def log_scores(iou_mean, iou_std, iout_mean, iout_std):
+    LOGGER.info('IOU mean {}, IOU std {}'.format(iou_mean, iou_std))
+    CTX.channel_send('IOU', 0, iou_mean)
+    CTX.channel_send('IOU STD', 0, iou_std)
+
+    LOGGER.info('IOUT mean {}, IOUT std {}'.format(iout_mean, iout_std))
+    CTX.channel_send('IOUT', 0, iout_mean)
+    CTX.channel_send('IOUT STD', 0, iout_std)
+
+
+def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions):
+    averaged_mask_predictions_test = np.mean(np.array(out_of_fold_test_predictions), axis=0)
+    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
+    pipeline_postprocessing.clean_cache()
+    test_pipe_masks = {'input_masks': {'resized_images': averaged_mask_predictions_test}
+                       }
+    y_pred_test = pipeline_postprocessing.transform(test_pipe_masks)['binarized_images']
+
+    LOGGER.info('Saving predictions')
+    out_of_fold_train_predictions_path = os.path.join(EXPERIMENT_DIR, 'out_of_fold_train_predictions.pkl')
+    joblib.dump({'ids': train_ids,
+                 'images': train_predictions}, out_of_fold_train_predictions_path)
+
+    out_of_fold_test_predictions_path = os.path.join(EXPERIMENT_DIR, 'out_of_fold_test_predictions.pkl')
+    joblib.dump({'ids': meta_test[ID_COLUMN].tolist(),
+                 'images': averaged_mask_predictions_test}, out_of_fold_test_predictions_path)
+
+    submission = utils.create_submission(meta_test, y_pred_test)
+    submission_filepath = os.path.join(EXPERIMENT_DIR, 'submission.csv')
+    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
+    LOGGER.info('submission saved to {}'.format(submission_filepath))
+    LOGGER.info('submission head \n\n{}'.format(submission.head()))
+
+
+#  .___  ___.      ___       __  .__   __.
+#  |   \/   |     /   \     |  | |  \ |  |
+#  |  \  /  |    /  ^  \    |  | |   \|  |
+#  |  |\/|  |   /  /_\  \   |  | |  . `  |
+#  |  |  |  |  /  _____  \  |  | |  |\   |
+#  |__|  |__| /__/     \__\ |__| |__| \__|
+#
 
 if __name__ == '__main__':
     prepare_metadata()
-    train()
-    evaluate()
-    predict()
+    train_evaluate_predict_cv()

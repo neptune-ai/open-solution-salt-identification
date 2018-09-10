@@ -206,12 +206,12 @@ def weight_regularization(model, regularize, weight_decay_conv2d):
 
 def callbacks_unet(callbacks_config):
     experiment_timing = cbk.ExperimentTiming(**callbacks_config['experiment_timing'])
-    model_checkpoints = cbk.ModelCheckpointSegmentation(**callbacks_config['model_checkpoint'])
+    model_checkpoints = cbk.ModelCheckpoint(**callbacks_config['model_checkpoint'])
     lr_scheduler = cbk.ExponentialLRScheduler(**callbacks_config['lr_scheduler'])
     training_monitor = cbk.TrainingMonitor(**callbacks_config['training_monitor'])
-    validation_monitor = cbk.ValidationMonitorSegmentation(**callbacks_config['validation_monitor'])
-    neptune_monitor = cbk.NeptuneMonitorSegmentation(**callbacks_config['neptune_monitor'])
-    early_stopping = cbk.EarlyStoppingSegmentation(**callbacks_config['early_stopping'])
+    validation_monitor = cbk.ValidationMonitor(**callbacks_config['validation_monitor'])
+    neptune_monitor = cbk.NeptuneMonitor(**callbacks_config['neptune_monitor'])
+    early_stopping = cbk.EarlyStopping(**callbacks_config['early_stopping'])
 
     return cbk.CallbackList(
         callbacks=[experiment_timing, training_monitor, validation_monitor,

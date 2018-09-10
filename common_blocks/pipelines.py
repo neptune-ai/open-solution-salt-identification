@@ -5,7 +5,7 @@ from steppy.adapter import Adapter, E
 
 from . import loaders
 from .utils import make_apply_transformer
-from .postprocessing import crop_image, resize_image, binarize
+from .postprocessing import binarize
 
 
 def preprocessing_train(config, model_name='unet', suffix=''):
@@ -97,7 +97,16 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
 
 
 def preprocessing_inference_tta(config, model_name='unet', suffix=''):
-    if config.loader.dataset_params.image_source == 'memory':
+    if config.general.loader_mode == 'crop_and_pad':
+        Loader = loaders.ImageSegmentationLoaderCropPadTTA
+        loader_config = config.loader.crop_and_pad_tta
+    elif config.general.loader_mode == 'resize':
+        Loader = loaders.ImageSegmentationLoaderResizeTTA
+        loader_config = config.loader.resize_tta
+    else:
+        raise NotImplementedError
+
+    if loader_config.dataset_params.image_source == 'memory':
         reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.ImageReader(train_mode=False, **config.reader[model_name]),
                                 input_data=['input'],
@@ -110,7 +119,7 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
                              adapter=Adapter({'X': E('reader_inference', 'X')}),
                              experiment_directory=config.execution.experiment_dir)
 
-    elif config.loader.dataset_params.image_source == 'disk':
+    elif loader_config.dataset_params.image_source == 'disk':
         reader_inference = Step(name='reader_inference{}'.format(suffix),
                                 transformer=loaders.XYSplit(train_mode=False, **config.xy_splitter[model_name]),
                                 input_data=['input'],
@@ -122,15 +131,6 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
                              input_steps=[reader_inference],
                              adapter=Adapter({'X': E('reader_inference', 'X')}),
                              experiment_directory=config.execution.experiment_dir)
-    else:
-        raise NotImplementedError
-
-    if config.general.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPadTTA
-        loader_config = config.loader.crop_and_pad_tta
-    elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResizeTTA
-        loader_config = config.loader.resize_tta
     else:
         raise NotImplementedError
 
@@ -158,28 +158,12 @@ def aggregator(name, model, tta_generator, experiment_directory, config):
 
 
 def mask_postprocessing(config, suffix=''):
-    if config.general.loader_mode == 'resize_and_pad':
-        size_adjustment_function = partial(crop_image, target_size=config.general.original_size)
-    elif config.general.loader_mode == 'resize':
-        size_adjustment_function = partial(resize_image, target_size=config.general.original_size)
-    else:
-        raise NotImplementedError
-
-    mask_resize = Step(name='mask_resize{}'.format(suffix),
-                       transformer=make_apply_transformer(size_adjustment_function,
-                                                          output_name='resized_images',
-                                                          apply_on=['images']),
-                       input_data=['input_masks'],
-                       adapter=Adapter({'images': E('input_masks', 'mask_prediction'),
-                                        }),
-                       experiment_directory=config.execution.experiment_dir)
-
     binarizer = Step(name='binarizer{}'.format(suffix),
                      transformer=make_apply_transformer(partial(binarize, threshold=config.thresholder.threshold_masks),
                                                         output_name='binarized_images',
                                                         apply_on=['images']),
-                     input_steps=[mask_resize],
-                     adapter=Adapter({'images': E(mask_resize.name, 'resized_images'),
+                     input_data=['input_masks'],
+                     adapter=Adapter({'images': E('input_masks', 'resized_images'),
                                       }),
                      experiment_directory=config.execution.experiment_dir)
     return binarizer
