@@ -14,7 +14,7 @@ from tqdm import tqdm
 import json
 from steppy.base import BaseTransformer
 
-from .utils import from_pil, to_pil, binary_from_rle, ImgAug
+from .utils import from_pil, to_pil, binary_from_rle, ImgAug, AddDepthChannels
 
 
 class ImageReader(BaseTransformer):
@@ -337,6 +337,7 @@ class ImageSegmentationLoader(ImageSegmentationLoaderBasic):
                                                    transforms.ToTensor(),
                                                    transforms.Normalize(mean=self.dataset_params.MEAN,
                                                                         std=self.dataset_params.STD),
+                                                   AddDepthChannels()
                                                    ])
         self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
                                                   transforms.Lambda(to_tensor),
@@ -364,6 +365,7 @@ class ImageSegmentationLoaderTTA(ImageSegmentationLoaderBasicTTA):
                                                    transforms.ToTensor(),
                                                    transforms.Normalize(mean=self.dataset_params.MEAN,
                                                                         std=self.dataset_params.STD),
+                                                   AddDepthChannels()
                                                    ])
         self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
                                                   transforms.Lambda(to_tensor),

@@ -63,8 +63,6 @@ parameters:
   repeat_blocks: 4
 
   # Loss
-  dice_weight: 0.0
-  bce_weight: 1.0
 
   # Training schedule
   epochs_nr: 10000
@@ -72,10 +70,18 @@ parameters:
   batch_size_inference: 64
   lr: 0.0001
   momentum: 0.9
-  gamma: 0.95
   patience: 20
   validation_metric_name: 'iout'
   minimize_validation_metric: 0
+
+  # Exponential LR scheduler
+  gamma: 0.95
+
+  # Reduce LR on plateau
+  reduce_factor: 0.1
+  reduce_patience: 10
+  min_lr: 1e-7
+
 
   # Regularization
   use_batch_norm: 1

@@ -1,45 +1,68 @@
+from functools import partial
+
 import numpy as np
 import torch
 import torch.optim as optim
 from torch.autograd import Variable
 import torch.nn as nn
-from functools import partial
+from torch.nn import functional as F
 from toolkit.pytorch_transformers.models import Model
 
 from .utils import sigmoid, softmax, get_list_of_image_predictions, pytorch_where
 from . import callbacks as cbk
-from .unet_models import UNetResNet, SaltUNet, SaltLinkNet
+from .unet_models import UNetResNet
 from .lovasz_losses import lovasz_hinge
 
-PRETRAINED_NETWORKS = {'ResNet34': {'model': UNetResNet,
-                                    'model_config': {'encoder_depth': 34,
-                                                     'num_filters': 32, 'dropout_2d': 0.0,
-                                                     'pretrained': True, 'is_deconv': True,
+PRETRAINED_NETWORKS = {'ResNet18': {'model': UNetResNet,
+                                    'model_config': {'encoder_depth': 18, 'use_hypercolumn': False,
+                                                     'dropout_2d': 0.0, 'pretrained': True,
+                                                     },
+                                    'init_weights': False},
+                       'ResNet34': {'model': UNetResNet,
+                                    'model_config': {'encoder_depth': 34, 'use_hypercolumn': False,
+                                                     'dropout_2d': 0.0, 'pretrained': True,
+                                                     },
+                                    'init_weights': False},
+                       'ResNet50': {'model': UNetResNet,
+                                    'model_config': {'encoder_depth': 50, 'use_hypercolumn': False,
+                                                     'dropout_2d': 0.0, 'pretrained': True,
                                                      },
                                     'init_weights': False},
                        'ResNet101': {'model': UNetResNet,
-                                     'model_config': {'encoder_depth': 101,
-                                                      'num_filters': 32, 'dropout_2d': 0.0,
-                                                      'pretrained': True, 'is_deconv': True,
+                                     'model_config': {'encoder_depth': 101, 'use_hypercolumn': False,
+                                                      'dropout_2d': 0.0, 'pretrained': True,
                                                       },
                                      'init_weights': False},
                        'ResNet152': {'model': UNetResNet,
-                                     'model_config': {'encoder_depth': 152,
-                                                      'num_filters': 32, 'dropout_2d': 0.0,
-                                                      'pretrained': True, 'is_deconv': True,
+                                     'model_config': {'encoder_depth': 152, 'use_hypercolumn': False,
+                                                      'dropout_2d': 0.0, 'pretrained': True,
                                                       },
                                      'init_weights': False},
-                       'SaltLinkNet': {'model': SaltLinkNet,
-                                       'model_config': {'dropout_2d': 0.5,
-                                                        'pretrained': True, 'is_deconv': True,
-                                                        },
-                                       'init_weights': False},
-
-                       'SaltUNet': {'model': SaltUNet,
-                                    'model_config': {'dropout_2d': 0.5,
-                                                     'pretrained': True, 'is_deconv': True,
-                                                     },
-                                    'init_weights': False},
+                       'ResNetHyper18': {'model': UNetResNet,
+                                         'model_config': {'encoder_depth': 18, 'use_hypercolumn': True,
+                                                          'dropout_2d': 0.0, 'pretrained': True,
+                                                          },
+                                         'init_weights': False},
+                       'ResNetHyper34': {'model': UNetResNet,
+                                         'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
+                                                          'dropout_2d': 0.0, 'pretrained': True,
+                                                          },
+                                         'init_weights': False},
+                       'ResNetHyper50': {'model': UNetResNet,
+                                         'model_config': {'encoder_depth': 50, 'use_hypercolumn': True,
+                                                          'dropout_2d': 0.0, 'pretrained': True,
+                                                          },
+                                         'init_weights': False},
+                       'ResNetHyper101': {'model': UNetResNet,
+                                          'model_config': {'encoder_depth': 101, 'use_hypercolumn': True,
+                                                           'dropout_2d': 0.0, 'pretrained': True,
+                                                           },
+                                          'init_weights': False},
+                       'ResNetHyper152': {'model': UNetResNet,
+                                          'model_config': {'encoder_depth': 152, 'use_hypercolumn': True,
+                                                           'dropout_2d': 0.0, 'pretrained': True,
+                                                           },
+                                          'init_weights': False},
                        }
 
 
@@ -108,6 +131,7 @@ class PyTorchUNet(Model):
                 partial_batch_losses[name] = loss_function(output, target) * weight
             batch_loss = sum(partial_batch_losses.values())
         partial_batch_losses['sum'] = batch_loss
+
         batch_loss.backward()
         self.optimizer.step()
 
@@ -140,6 +164,7 @@ class PyTorchUNet(Model):
             else:
                 X = Variable(X, volatile=True)
             outputs_batch = self.model(X)
+
             if len(self.output_names) == 1:
                 outputs.setdefault(self.output_names[0], []).append(outputs_batch.data.cpu().numpy())
             else:
@@ -162,22 +187,9 @@ class PyTorchUNet(Model):
 
     def set_loss(self):
         if self.activation_func == 'softmax':
-            loss_function = partial(mixed_dice_cross_entropy_loss,
-                                    dice_loss=multiclass_dice_loss,
-                                    cross_entropy_loss=nn.CrossEntropyLoss(),
-                                    dice_activation='softmax',
-                                    dice_weight=self.architecture_config['model_params']['dice_weight'],
-                                    cross_entropy_weight=self.architecture_config['model_params']['bce_weight']
-                                    )
+            raise NotImplementedError('No softmax loss defined')
         elif self.activation_func == 'sigmoid':
             loss_function = lovasz_loss
-            # loss_function = partial(mixed_dice_bce_loss,
-            #                         dice_loss=multiclass_dice_loss,
-            #                         bce_loss=nn.BCEWithLogitsLoss(),
-            #                         dice_activation='sigmoid',
-            #                         dice_weight=self.architecture_config['model_params']['dice_weight'],
-            #                         bce_weight=self.architecture_config['model_params']['bce_weight']
-            #                         )
         else:
             raise Exception('Only softmax and sigmoid activations are allowed')
         self.loss_function = [('mask', loss_function, 1.0)]
@@ -197,6 +209,35 @@ class PyTorchUNet(Model):
         return self
 
 
+class FocalWithLogitsLoss(nn.Module):
+    def __init__(self, alpha=1.0, gamma=1.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, input, target):
+        if not (target.size() == input.size()):
+            raise ValueError("Target size ({}) must be the same as input size ({})".format(target.size(), input.size()))
+
+        max_val = (-input).clamp(min=0)
+        logpt = input - input * target + max_val + ((-max_val).exp() + (-input - max_val).exp()).log()
+        pt = torch.exp(-logpt)
+        at = self.alpha * target + (1 - target)
+        loss = at * ((1 - pt).pow(self.gamma)) * logpt
+        return loss
+
+
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=0, eps=1e-7):
+        super().__init__()
+        self.smooth = smooth
+        self.eps = eps
+
+    def forward(self, output, target):
+        return 1 - (2 * torch.sum(output * target) + self.smooth) / (
+            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+
+
 def weight_regularization(model, regularize, weight_decay_conv2d):
     if regularize:
         parameter_list = [
@@ -211,7 +252,7 @@ def weight_regularization(model, regularize, weight_decay_conv2d):
 def callbacks_unet(callbacks_config):
     experiment_timing = cbk.ExperimentTiming(**callbacks_config['experiment_timing'])
     model_checkpoints = cbk.ModelCheckpoint(**callbacks_config['model_checkpoint'])
-    lr_scheduler = cbk.ExponentialLRScheduler(**callbacks_config['lr_scheduler'])
+    lr_scheduler = cbk.ReduceLROnPlateauScheduler(**callbacks_config['reduce_lr_on_plateau_scheduler'])
     training_monitor = cbk.TrainingMonitor(**callbacks_config['training_monitor'])
     validation_monitor = cbk.ValidationMonitor(**callbacks_config['validation_monitor'])
     neptune_monitor = cbk.NeptuneMonitor(**callbacks_config['neptune_monitor'])
@@ -222,15 +263,10 @@ def callbacks_unet(callbacks_config):
                    model_checkpoints, lr_scheduler, neptune_monitor, early_stopping])
 
 
-class DiceLoss(nn.Module):
-    def __init__(self, smooth=0, eps=1e-7):
-        super(DiceLoss, self).__init__()
-        self.smooth = smooth
-        self.eps = eps
-
-    def forward(self, output, target):
-        return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+def weighted_lovash_focal_loss(output, target):
+    focal = weighted_focal_loss(output, target)
+    lovasz = lovasz_hinge(output, target)
+    return 0.25 * focal + lovasz
 
 
 def lovasz_loss(output, target):
@@ -238,66 +274,72 @@ def lovasz_loss(output, target):
     return lovasz_hinge(output, target)
 
 
-def mixed_dice_bce_loss(output, target, dice_weight=0.2, dice_loss=None,
-                        bce_weight=0.9, bce_loss=None,
-                        smooth=0, dice_activation='sigmoid'):
-    num_classes = output.size(1)
-    target = target[:, :num_classes, :, :].long()
-    if bce_loss is None:
-        bce_loss = nn.BCEWithLogitsLoss()
-    if dice_loss is None:
-        dice_loss = multiclass_dice_loss
-    return dice_weight * dice_loss(output, target, smooth, dice_activation) + bce_weight * bce_loss(output, target)
+def weighted_focal_loss(output, target,
+                        alpha=1.0, gamma=5.0,
+                        max_weight=100.0,
+                        focus_threshold=0.1,
+                        use_size_weight=True,
+                        use_border_weight=True, border_size=24, border_weight=2.0
+                        ):
+    output = focus_output(output, focus_threshold=focus_threshold)
+    loss_per_pixel = FocalWithLogitsLoss(alpha=alpha, gamma=gamma)(output, target)
+    weights = get_weights(target,
+                          max_weight=max_weight,
+                          use_size_weight=use_size_weight,
+                          use_border_weight=use_border_weight, border_size=border_size, border_weight=border_weight)
+    loss = torch.mean(loss_per_pixel * weights)
+    return loss
 
 
-def mixed_dice_cross_entropy_loss(output, target, dice_weight=0.5, dice_loss=None,
-                                  cross_entropy_weight=0.5, cross_entropy_loss=None, smooth=0,
-                                  dice_activation='softmax'):
-    num_classes_without_background = output.size(1) - 1
-    dice_output = output[:, 1:, :, :]
-    dice_target = target[:, :num_classes_without_background, :, :].long()
-    cross_entropy_target = torch.zeros_like(target[:, 0, :, :]).long()
-    for class_nr in range(num_classes_without_background):
-        cross_entropy_target = where(target[:, class_nr, :, :], class_nr + 1, cross_entropy_target)
-    if cross_entropy_loss is None:
-        cross_entropy_loss = nn.CrossEntropyLoss()
-    if dice_loss is None:
-        dice_loss = multiclass_dice_loss
-    return dice_weight * dice_loss(dice_output, dice_target, smooth,
-                                   dice_activation) + cross_entropy_weight * cross_entropy_loss(output,
-                                                                                                cross_entropy_target)
-
-
-def multiclass_dice_loss(output, target, smooth=0, activation='softmax'):
-    """Calculate Dice Loss for multiple class output.
-
-    Args:
-        output (torch.Tensor): Model output of shape (N x C x H x W).
-        target (torch.Tensor): Target of shape (N x H x W).
-        smooth (float, optional): Smoothing factor. Defaults to 0.
-        activation (string, optional): Name of the activation function, softmax or sigmoid. Defaults to 'softmax'.
-
-    Returns:
-        torch.Tensor: Loss value.
-
-    """
-    if activation == 'softmax':
-        activation_nn = torch.nn.Softmax2d()
-    elif activation == 'sigmoid':
-        activation_nn = torch.nn.Sigmoid()
+def focus_output(output, focus_threshold):
+    if torch.cuda.is_available():
+        output_numpy = F.sigmoid(output).data.cpu().numpy()
     else:
-        raise NotImplementedError('only sigmoid and softmax are implemented')
-
-    loss = 0
-    dice = DiceLoss(smooth=smooth)
-    output = activation_nn(output)
-    num_classes = output.size(1)
-    target.data = target.data.float()
-    for class_nr in range(num_classes):
-        loss += dice(output[:, class_nr, :, :], target[:, class_nr, :, :])
-    return loss / num_classes
+        output_numpy = F.sigmoid(output).data.numpy()
+    focus_weights = np.where(output_numpy < focus_threshold, 0.0, 1.0)
+    focus_weights = Variable(torch.Tensor(focus_weights), requires_grad=False)
+    if torch.cuda.is_available():
+        focus_weights = focus_weights.cuda()
+    return torch.mul(focus_weights, output)
 
 
-def where(cond, x_1, x_2):
-    cond = cond.long()
-    return (cond * x_1) + ((1 - cond) * x_2)
+def get_weights(target, max_weight=5.0,
+                use_size_weight=True,
+                use_border_weight=True, border_size=10, border_weight=2.0):
+    if torch.cuda.is_available():
+        target_numpy = target.data.cpu().numpy()
+    else:
+        target_numpy = target.data.numpy()
+
+    if use_size_weight:
+        size_weights = _size_weights(target_numpy)
+    else:
+        size_weights = np.ones_like(target_numpy)
+
+    if use_border_weight:
+        border_weights = _border_weights(target_numpy, border_size=border_size, border_weight=border_weight)
+    else:
+        border_weights = np.ones_like(target_numpy)
+
+    weights = border_weights * size_weights
+    weights = np.where(weights > max_weight, max_weight, weights)
+    weights = Variable(torch.Tensor(weights), requires_grad=False)
+
+    if torch.cuda.is_available():
+        weights = weights.cuda()
+    return weights
+
+
+def _size_weights(target):
+    target_ = target[:, 1, :, :]
+    size_per_image = np.mean(target_, axis=(1, 2))
+    size_per_image = np.where(size_per_image == 0.0, 1.0, size_per_image)
+    size_weights_per_image = 1.0 / size_per_image.reshape(-1, 1, 1, 1)
+    size_weights = np.where(target, np.multiply(target, size_weights_per_image), 1.0)
+    return size_weights
+
+
+def _border_weights(target, border_size=10, border_weight=2.0):
+    border_mask = border_weight * np.ones_like(target)
+    border_mask[:, :, border_size:-border_size, border_size:-border_size] = 1.0
+    return border_mask

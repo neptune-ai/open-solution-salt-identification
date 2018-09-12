@@ -19,6 +19,7 @@ from pycocotools import mask as cocomask
 from sklearn.model_selection import BaseCrossValidator
 from steppy.base import BaseTransformer, Step
 from steppy.utils import get_logger
+from skimage.transform import resize
 import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
@@ -472,3 +473,69 @@ class FineTuneStep(Step):
 def pytorch_where(cond, x_1, x_2):
     cond = cond.float()
     return (cond * x_1) + ((1 - cond) * x_2)
+
+
+class AddDepthChannels:
+    def __call__(self, tensor):
+        _, h, w = tensor.size()
+        for row, const in enumerate(np.linspace(0, 1, h)):
+            tensor[1, row, :] = const
+        tensor[2] = tensor[0] * tensor[1]
+        return tensor
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
+def load_image(filepath, is_mask=False):
+    if is_mask:
+        img = (np.array(Image.open(filepath)) > 0).astype(np.uint8)
+    else:
+        img = np.array(Image.open(filepath)).astype(np.uint8)
+    return img
+
+
+def save_image(img, filepath):
+    img = Image.fromarray((img))
+    img.save(filepath)
+
+
+def resize_image(image, target_shape, is_mask=False):
+    if is_mask:
+        image = (resize(image, target_shape, preserve_range=True) > 0).astype(int)
+    else:
+        image = resize(image, target_shape)
+    return image
+
+
+def get_cut_coordinates(mask, step=4, min_img_crop=20, min_size=50, max_size=300):
+    h, w = mask.shape
+    ts = []
+    rots = [1, 2, 3, 0]
+    for rot in rots:
+        mask = np.rot90(mask)
+        for t in range(min_img_crop, h, step):
+            crop = mask[:t, :t]
+            size = crop.mean() * h * w
+            if min_size < size <= max_size:
+                break
+        ts.append((t, rot))
+    try:
+        ts = [(t, r) for t, r in ts if t < 99]
+        best_t, best_rot = sorted(ts, key=lambda x: x[0], reverse=True)[0]
+    except IndexError:
+        return (0, w), (0, h), False
+    if best_t < min_img_crop:
+        return (0, w), (0, h), False
+
+    if best_rot == 0:
+        x1, x2, y1, y2 = 0, best_t, 0, best_t
+    elif best_rot == 1:
+        x1, x2, y1, y2 = 0, best_t, h - best_t, h
+    elif best_rot == 2:
+        x1, x2, y1, y2 = w - best_t, w, h - best_t, h
+    elif best_rot == 3:
+        x1, x2, y1, y2 = w - best_t, w, 0, best_t
+    else:
+        raise ValueError
+    return (x1, x2), (y1, y2), True

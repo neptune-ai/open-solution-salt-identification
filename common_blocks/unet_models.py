@@ -21,7 +21,8 @@ https://github.com/ternaus/TernausNet
 class ConvBnRelu(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1),
+        self.conv = nn.Sequential(nn.ReplicationPad2d(padding=1),
+                                  nn.Conv2d(in_channels, out_channels, 3, padding=0),
                                   nn.BatchNorm2d(out_channels),
                                   nn.ReLU(inplace=True)
                                   )
@@ -35,44 +36,59 @@ class NoOperation(nn.Module):
         return x
 
 
-class DecoderBlockV1(nn.Module):
+class DecoderBlock(nn.Module):
     def __init__(self, in_channels, middle_channels, out_channels):
-        super().__init__()
+        super(DecoderBlock, self).__init__()
+        self.conv1 = ConvBnRelu(in_channels, middle_channels)
+        self.conv2 = ConvBnRelu(middle_channels, out_channels)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+        self.relu = nn.ReLU(inplace=True)
+        self.channel_se = ChannelSELayer(out_channels, reduction=16)
+        self.spatial_se = SpatialSELayer(out_channels)
 
-        self.block = nn.Sequential(
-            ConvBnRelu(in_channels, middle_channels),
-            nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
+    def forward(self, x, e=None):
+        x = self.upsample(x)
+        if e is not None:
+            x = torch.cat([x, e], 1)
+        x = self.conv1(x)
+        x = self.conv2(x)
 
-    def forward(self, x):
-        return self.block(x)
+        channel_se = self.channel_se(x)
+        spatial_se = self.spatial_se(x)
 
-
-class DecoderBlockV2(nn.Module):
-    def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
-        super(DecoderBlockV2, self).__init__()
-        self.is_deconv = is_deconv
-
-        self.deconv = nn.Sequential(
-            ConvBnRelu(in_channels, middle_channels),
-            nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
-
-        self.upsample = nn.Sequential(
-            ConvBnRelu(in_channels, out_channels),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-        )
-
-    def forward(self, x):
-        if self.is_deconv:
-            x = self.deconv(x)
-        else:
-            x = self.upsample(x)
+        x = self.relu(channel_se + spatial_se)
         return x
+
+
+class ChannelSELayer(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y
+
+
+class SpatialSELayer(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.fc = nn.Conv2d(channels, 1, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        module_input = x
+        x = self.fc(x)
+        x = self.sigmoid(x)
+        return module_input * x
 
 
 class UNetResNet(nn.Module):
@@ -95,18 +111,23 @@ class UNetResNet(nn.Module):
                 False: bilinear interpolation is used in decoder.
                 True: deconvolution is used in decoder.
                 Defaults to False.
-
     """
 
-    def __init__(self, encoder_depth, num_classes, num_filters=32, dropout_2d=0.2,
-                 pretrained=False, is_deconv=False):
+    def __init__(self, encoder_depth, num_classes, dropout_2d=0.2, pretrained=False, use_hypercolumn=False):
         super().__init__()
         self.num_classes = num_classes
         self.dropout_2d = dropout_2d
+        self.use_hypercolumn = use_hypercolumn
 
-        if encoder_depth == 34:
+        if encoder_depth == 18:
+            self.encoder = torchvision.models.resnet18(pretrained=pretrained)
+            bottom_channel_nr = 512
+        elif encoder_depth == 34:
             self.encoder = torchvision.models.resnet34(pretrained=pretrained)
             bottom_channel_nr = 512
+        elif encoder_depth == 50:
+            self.encoder = torchvision.models.resnet50(pretrained=pretrained)
+            bottom_channel_nr = 2048
         elif encoder_depth == 101:
             self.encoder = torchvision.models.resnet101(pretrained=pretrained)
             bottom_channel_nr = 2048
@@ -114,120 +135,73 @@ class UNetResNet(nn.Module):
             self.encoder = torchvision.models.resnet152(pretrained=pretrained)
             bottom_channel_nr = 2048
         else:
-            raise NotImplementedError('only 34, 101, 152 version of Resnet are implemented')
+            raise NotImplementedError('only 18, 34, 50, 101, 152 version of Resnet are implemented')
 
         self.pool = nn.MaxPool2d(2, 2)
 
         self.relu = nn.ReLU(inplace=True)
 
-        self.input_adjust = nn.Sequential(self.encoder.conv1,
-                                          self.encoder.bn1,
-                                          self.encoder.relu)
+        self.conv1 = nn.Sequential(self.encoder.conv1,
+                                   self.encoder.bn1,
+                                   self.encoder.relu)
 
-        self.conv1 = self.encoder.layer1
-        self.conv2 = self.encoder.layer2
-        self.conv3 = self.encoder.layer3
-        self.conv4 = self.encoder.layer4
+        self.encoder2 = self.encoder.layer1
+        self.encoder3 = self.encoder.layer2
+        self.encoder4 = self.encoder.layer3
+        self.encoder5 = self.encoder.layer4
 
-        self.dec4 = DecoderBlockV2(bottom_channel_nr, num_filters * 8 * 2, num_filters * 8, is_deconv)
-        self.dec3 = DecoderBlockV2(bottom_channel_nr // 2 + num_filters * 8, num_filters * 8 * 2, num_filters * 8,
-                                   is_deconv)
-        self.dec2 = DecoderBlockV2(bottom_channel_nr // 4 + num_filters * 8, num_filters * 4 * 2, num_filters * 2,
-                                   is_deconv)
-        self.dec1 = DecoderBlockV2(bottom_channel_nr // 8 + num_filters * 2, num_filters * 2 * 2, num_filters * 2 * 2,
-                                   is_deconv)
-        self.final = nn.Conv2d(num_filters * 2 * 2, num_classes, kernel_size=1)
+        self.center = nn.Sequential(ConvBnRelu(bottom_channel_nr, bottom_channel_nr),
+                                    ConvBnRelu(bottom_channel_nr, bottom_channel_nr // 2),
+                                    nn.AvgPool2d(kernel_size=2, stride=2)
+                                    )
 
-    def forward(self, x):
-        input_adjust = self.input_adjust(x)
-        conv1 = self.conv1(input_adjust)
-        conv2 = self.conv2(conv1)
-        conv3 = self.conv3(conv2)
-        center = self.conv4(conv3)
-        dec4 = self.dec4(center)
-        dec3 = self.dec3(torch.cat([dec4, conv3], 1))
-        dec2 = self.dec2(torch.cat([dec3, conv2], 1))
-        dec1 = F.dropout2d(self.dec1(torch.cat([dec2, conv1], 1)), p=self.dropout_2d)
-        return self.final(dec1)
+        self.dec5 = DecoderBlock(bottom_channel_nr + bottom_channel_nr // 2,
+                                 bottom_channel_nr,
+                                 bottom_channel_nr // 8)
 
+        self.dec4 = DecoderBlock(bottom_channel_nr // 2 + bottom_channel_nr // 8,
+                                 bottom_channel_nr // 2,
+                                 bottom_channel_nr // 8)
+        self.dec3 = DecoderBlock(bottom_channel_nr // 4 + bottom_channel_nr // 8,
+                                 bottom_channel_nr // 4,
+                                 bottom_channel_nr // 8)
+        self.dec2 = DecoderBlock(bottom_channel_nr // 8 + bottom_channel_nr // 8,
+                                 bottom_channel_nr // 8,
+                                 bottom_channel_nr // 8)
+        self.dec1 = DecoderBlock(bottom_channel_nr // 8,
+                                 bottom_channel_nr // 16,
+                                 bottom_channel_nr // 8)
 
-class SaltUNet(nn.Module):
-    def __init__(self, num_classes, dropout_2d=0.2, pretrained=False, is_deconv=False):
-        super().__init__()
-        self.num_classes = num_classes
-        self.dropout_2d = dropout_2d
-
-        self.encoder = torchvision.models.resnet34(pretrained=pretrained)
-
-        self.relu = nn.ReLU(inplace=True)
-
-        self.input_adjust = nn.Sequential(self.encoder.conv1,
-                                          self.encoder.bn1,
-                                          self.encoder.relu)
-
-        self.conv1 = list(self.encoder.layer1.children())[1]
-        self.conv2 = list(self.encoder.layer1.children())[2]
-        self.conv3 = list(self.encoder.layer2.children())[0]
-
-        self.conv4 = list(self.encoder.layer2.children())[1]
-
-        self.dec3 = DecoderBlockV2(256, 512, 256, is_deconv)
-        self.dec2 = ConvBnRelu(256 + 64, 256)
-        self.dec1 = DecoderBlockV2(256 + 64, (256 + 64) * 2, 256, is_deconv)
-
-        self.final = nn.Conv2d(256, num_classes, kernel_size=1)
+        if self.use_hypercolumn:
+            self.final = nn.Sequential(ConvBnRelu(5 * bottom_channel_nr // 8, bottom_channel_nr // 8),
+                                       nn.Conv2d(bottom_channel_nr // 8, num_classes, kernel_size=1, padding=0))
+        else:
+            self.final = nn.Sequential(ConvBnRelu(bottom_channel_nr // 8, bottom_channel_nr // 8),
+                                       nn.Conv2d(bottom_channel_nr // 8, num_classes, kernel_size=1, padding=0))
 
     def forward(self, x):
-        input_adjust = self.input_adjust(x)
-        conv1 = self.conv1(input_adjust)
-        conv2 = self.conv2(conv1)
-        conv3 = self.conv3(conv2)
-        center = self.conv4(conv3)
-        dec3 = self.dec3(torch.cat([center, conv3], 1))
-        dec2 = self.dec2(torch.cat([dec3, conv2], 1))
-        dec1 = F.dropout2d(self.dec1(torch.cat([dec2, conv1], 1)), p=self.dropout_2d)
-        return self.final(dec1)
+        conv1 = self.conv1(x)
+        encoder2 = self.encoder2(conv1)
+        encoder3 = self.encoder3(encoder2)
+        encoder4 = self.encoder4(encoder3)
+        encoder5 = self.encoder5(encoder4)
 
+        center = self.center(encoder5)
 
-class SaltLinkNet(nn.Module):
-    def __init__(self, num_classes, dropout_2d=0.2, pretrained=False, is_deconv=False):
-        super().__init__()
-        self.num_classes = num_classes
-        self.dropout_2d = dropout_2d
+        dec5 = self.dec5(center, encoder5)
+        dec4 = self.dec4(dec5, encoder4)
+        dec3 = self.dec3(dec4, encoder3)
+        dec2 = self.dec2(dec3, encoder2)
+        dec1 = self.dec1(dec2)
 
-        self.encoder = torchvision.models.resnet34(pretrained=pretrained)
-
-        self.relu = nn.ReLU(inplace=True)
-
-        self.input_adjust = nn.Sequential(self.encoder.conv1,
-                                          self.encoder.bn1,
-                                          self.encoder.relu)
-
-        self.conv1_1 = list(self.encoder.layer1.children())[1]
-        self.conv1_2 = list(self.encoder.layer1.children())[2]
-
-        self.conv2_0 = list(self.encoder.layer2.children())[0]
-        self.conv2_1 = list(self.encoder.layer2.children())[1]
-        self.conv2_2 = list(self.encoder.layer2.children())[2]
-        self.conv2_3 = list(self.encoder.layer2.children())[3]
-
-        self.dec2 = DecoderBlockV2(128, 256, 256, is_deconv=is_deconv)
-        self.dec1 = DecoderBlockV2(256 + 64, 512, 256, is_deconv=is_deconv)
-        self.final = nn.Conv2d(256, num_classes, kernel_size=1)
-
-    def forward(self, x):
-        input_adjust = self.input_adjust(x)
-        conv1_1 = self.conv1_1(input_adjust)
-        conv1_2 = self.conv1_2(conv1_1)
-        conv2_0 = self.conv2_0(conv1_2)
-        conv2_1 = self.conv2_1(conv2_0)
-        conv2_2 = self.conv2_2(conv2_1)
-        conv2_3 = self.conv2_3(conv2_2)
-
-        conv1_sum = conv1_1 + conv1_2
-        conv2_sum = conv2_0 + conv2_1 + conv2_2 + conv2_3
-
-        dec2 = self.dec2(conv2_sum)
-        dec1 = self.dec1(torch.cat([dec2, conv1_sum], 1))
-
-        return self.final(F.dropout2d(dec1, p=self.dropout_2d))
+        if self.use_hypercolumn:
+            hypercolumn = torch.cat([dec1,
+                                     F.upsample(dec2, scale_factor=2, mode='bilinear'),
+                                     F.upsample(dec3, scale_factor=4, mode='bilinear'),
+                                     F.upsample(dec4, scale_factor=8, mode='bilinear'),
+                                     F.upsample(dec5, scale_factor=16, mode='bilinear'),
+                                     ], 1)
+            drop = F.dropout2d(hypercolumn, p=self.dropout_2d)
+        else:
+            drop = F.dropout2d(dec1, p=self.dropout_2d)
+        return self.final(drop)

@@ -30,7 +30,7 @@ LOGGER = utils.init_logger()
 
 EXPERIMENT_DIR = '/output/experiment'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
-OVERWRITE_EXPERIMENT_DIR = True
+OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
 
 if OVERWRITE_EXPERIMENT_DIR and os.path.isdir(EXPERIMENT_DIR):
@@ -198,8 +198,6 @@ CONFIG = AttrDict({
                                                      'nr_outputs': PARAMS.nr_unet_outputs,
                                                      'encoder': PARAMS.encoder,
                                                      'activation': PARAMS.unet_activation,
-                                                     'dice_weight': PARAMS.dice_weight,
-                                                     'bce_weight': PARAMS.bce_weight,
                                                      },
                                     'optimizer_params': {'lr': PARAMS.lr,
                                                          },
@@ -219,8 +217,13 @@ CONFIG = AttrDict({
                 'epoch_every': 1,
                 'metric_name': PARAMS.validation_metric_name,
                 'minimize': PARAMS.minimize_validation_metric},
-                'lr_scheduler': {'gamma': PARAMS.gamma,
-                                 'epoch_every': 1},
+                'exponential_lr_scheduler': {'gamma': PARAMS.gamma,
+                                             'epoch_every': 1},
+                'reduce_lr_on_plateau_scheduler': {'metric_name': PARAMS.validation_metric_name,
+                                                   'minimize': PARAMS.minimize_validation_metric,
+                                                   'reduce_factor': PARAMS.reduce_factor,
+                                                   'reduce_patience': PARAMS.reduce_patience,
+                                                   'min_lr': PARAMS.min_lr},
                 'training_monitor': {'batch_every': 0,
                                      'epoch_every': 1},
                 'experiment_timing': {'batch_every': 0,
@@ -769,4 +772,3 @@ def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_p
 if __name__ == '__main__':
     prepare_metadata()
     train_evaluate_predict_cv()
-

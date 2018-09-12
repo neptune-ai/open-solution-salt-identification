@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 import neptune
 from torch.autograd import Variable
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import ExponentialLR, ReduceLROnPlateau
 from tempfile import TemporaryDirectory
 
 from steppy.base import Step, IdentityOperation
@@ -200,6 +200,83 @@ class ExponentialLRScheduler(Callback):
         self.batch_id += 1
 
 
+class ReduceLROnPlateauScheduler(Callback):
+    def __init__(self, metric_name, minimize, reduce_factor, reduce_patience, min_lr):
+        super().__init__()
+        self.ctx = neptune.Context()
+        self.metric_name = metric_name
+        self.minimize = minimize
+        self.reduce_factor = reduce_factor
+        self.reduce_patience = reduce_patience
+        self.min_lr = min_lr
+
+    def set_params(self, transformer, validation_datagen, *args, **kwargs):
+        super().set_params(transformer, validation_datagen)
+        self.validation_datagen = validation_datagen
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+        self.lr_scheduler = ReduceLROnPlateau(optimizer=self.optimizer,
+                                              mode='min' if self.minimize else 'max',
+                                              factor=self.reduce_factor,
+                                              patience=self.reduce_patience,
+                                              min_lr=self.min_lr)
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+
+    def on_epoch_end(self, *args, **kwargs):
+        self.model.eval()
+        val_loss = self.get_validation_loss()
+        metric = val_loss[self.metric_name]
+        metric = metric.data.cpu().numpy()[0]
+        self.model.train()
+
+        self.lr_scheduler.step(metrics=metric, epoch=self.epoch_id)
+        logger.info('epoch {0} current lr: {1}'.format(self.epoch_id + 1,
+                                                       self.optimizer.state_dict()['param_groups'][0]['lr']))
+        self.ctx.channel_send('Learning Rate', x=self.epoch_id,
+                              y=self.optimizer.state_dict()['param_groups'][0]['lr'])
+
+        self.epoch_id += 1
+
+
+class InitialLearningRateFinder(Callback):
+    def __init__(self, min_lr=1e-8, multipy_factor=1.05, add_factor=0.0):
+        super().__init__()
+        self.ctx = neptune.Context()
+        self.min_lr = min_lr
+        self.multipy_factor = multipy_factor
+        self.add_factor = add_factor
+
+    def set_params(self, transformer, validation_datagen, *args, **kwargs):
+        super().set_params(transformer, validation_datagen)
+        self.validation_datagen = validation_datagen
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.min_lr
+
+    def on_batch_end(self, metrics, *args, **kwargs):
+        for name, loss in metrics.items():
+            loss = loss.data.cpu().numpy()[0]
+        current_lr = self.optimizer.state_dict()['param_groups'][0]['lr']
+        logger.info('Learning Rate {} Loss {})'.format(current_lr, loss))
+        self.ctx.channel_send('Learning Rate', x=self.batch_id, y=current_lr)
+        self.ctx.channel_send('Loss', x=self.batch_id, y=loss)
+
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = current_lr * self.multipy_factor + self.add_factor
+        self.batch_id += 1
+
+
 class ExperimentTiming(Callback):
     def __init__(self, epoch_every=None, batch_every=None):
         super().__init__()
@@ -340,11 +417,24 @@ class ValidationMonitor(Callback):
 
     def _get_validation_loss(self):
         output, epoch_loss = self._transform()
-        y_pred = self._generate_prediction(output)
+        logger.info('Selecting best threshold')
+
+        iout_best, threshold_best = 0.0, 0.5
+        for threshold in np.linspace(0.5, 0.3, 21):
+            y_pred = self._generate_prediction(output, threshold)
+            iout_score = intersection_over_union_thresholds(self.y_true, y_pred)
+            logger.info('threshold {} IOUT {}'.format(threshold, iout_score))
+            if iout_score > iout_best:
+                iout_best = iout_score
+                threshold_best = threshold
+            else:
+                break
+        logger.info('Selected best threshold {} IOUT {}'.format(threshold_best, iout_best))
 
         logger.info('Calculating IOU and IOUT Scores')
-        iou_score = intersection_over_union(self.y_true, y_pred)
+        y_pred = self._generate_prediction(output, threshold_best)
         iout_score = intersection_over_union_thresholds(self.y_true, y_pred)
+        iou_score = intersection_over_union(self.y_true, y_pred)
         logger.info('IOU score on validation is {}'.format(iou_score))
         logger.info('IOUT score on validation is {}'.format(iout_score))
 
@@ -407,14 +497,14 @@ class ValidationMonitor(Callback):
 
         return outputs, average_losses
 
-    def _generate_prediction(self, outputs):
+    def _generate_prediction(self, outputs, threshold):
         data = {'callback_input': {'meta': self.meta_valid,
                                    'meta_valid': None,
                                    },
                 'unet_output': {**outputs}
                 }
         with TemporaryDirectory() as cache_dirpath:
-            pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode)
+            pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode, threshold)
             output = pipeline.transform(data)
         y_pred = output['y_pred']
         return y_pred
@@ -494,7 +584,7 @@ class EarlyStopping(Callback):
         self.epoch_id += 1
 
 
-def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
+def postprocessing_pipeline_simplified(cache_dirpath, loader_mode, threshold):
     if loader_mode == 'resize_and_pad':
         size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
     elif loader_mode == 'resize':
@@ -513,7 +603,7 @@ def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
 
     binarizer = Step(name='binarizer',
                      transformer=make_apply_transformer(
-                         partial(binarize, threshold=THRESHOLD),
+                         partial(binarize, threshold=threshold),
                          output_name='binarized_images',
                          apply_on=['images']),
                      input_steps=[mask_resize],
