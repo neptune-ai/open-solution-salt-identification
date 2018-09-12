@@ -257,10 +257,11 @@ def callbacks_unet(callbacks_config):
     validation_monitor = cbk.ValidationMonitor(**callbacks_config['validation_monitor'])
     neptune_monitor = cbk.NeptuneMonitor(**callbacks_config['neptune_monitor'])
     early_stopping = cbk.EarlyStopping(**callbacks_config['early_stopping'])
+    initial_lr = cbk.InitialLearningRateFinder()
 
     return cbk.CallbackList(
         callbacks=[experiment_timing, training_monitor, validation_monitor,
-                   model_checkpoints, lr_scheduler, neptune_monitor, early_stopping])
+                   model_checkpoints, lr_scheduler, neptune_monitor, early_stopping, initial_lr])
 
 
 def weighted_lovash_focal_loss(output, target):
