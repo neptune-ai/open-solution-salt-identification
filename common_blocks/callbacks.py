@@ -204,6 +204,7 @@ class ReduceLROnPlateauScheduler(Callback):
     def __init__(self, metric_name, minimize, reduce_factor, reduce_patience, min_lr):
         super().__init__()
         self.ctx = neptune.Context()
+        self.ctx.channel_reset('Learning Rate')
         self.metric_name = metric_name
         self.minimize = minimize
         self.reduce_factor = reduce_factor
@@ -246,6 +247,7 @@ class InitialLearningRateFinder(Callback):
     def __init__(self, min_lr=1e-8, multipy_factor=1.05, add_factor=0.0):
         super().__init__()
         self.ctx = neptune.Context()
+        self.ctx.channel_reset('Learning Rate Finder')
         self.min_lr = min_lr
         self.multipy_factor = multipy_factor
         self.add_factor = add_factor
@@ -269,7 +271,7 @@ class InitialLearningRateFinder(Callback):
             loss = loss.data.cpu().numpy()[0]
         current_lr = self.optimizer.state_dict()['param_groups'][0]['lr']
         logger.info('Learning Rate {} Loss {})'.format(current_lr, loss))
-        self.ctx.channel_send('Learning Rate', x=self.batch_id, y=current_lr)
+        self.ctx.channel_send('Learning Rate Finder', x=self.batch_id, y=current_lr)
         self.ctx.channel_send('Loss', x=self.batch_id, y=loss)
 
         for param_group in self.optimizer.param_groups:
