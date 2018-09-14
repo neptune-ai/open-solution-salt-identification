@@ -1,7 +1,7 @@
 #project: USERNAME/PROJECT_NAME
 
 name: tgs_salt_identification_challenge
-tags: [solution-4]
+tags: [solution-5]
 
 metric:
   channel: 'IOUT'
@@ -28,14 +28,16 @@ parameters:
   depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
 
   # Execution
-  overwrite: 1
+  overwrite: 0
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-4'
+  kaggle_message: 'solution-5'
   image_source: disk
   pin_memory: 1
-  loader_mode: resize
-  pad_method: symmetric
+  loader_mode: resize_and_pad
+  pad_method: reflect
+  resize_target_size: 102
+  pad_size: 13
   target_format: 'png'
   dev_mode_size: 100
   n_cv_splits: 6
@@ -49,7 +51,8 @@ parameters:
   # U-Net parameters
   unet_output_channels: 2
   unet_activation: 'sigmoid'
-  encoder: ResNet152
+  encoder: ResNet34
+  fine_tuning: 1
 
   # U-Net from scratch parameters
   nr_unet_outputs: 1
@@ -60,14 +63,14 @@ parameters:
   repeat_blocks: 4
 
   # Loss
-  dice_weight: 5.0
+  dice_weight: 1.0
   bce_weight: 1.0
 
   # Training schedule
   epochs_nr: 10000
-  batch_size_train: 64
+  batch_size_train: 48
   batch_size_inference: 64
-  lr: 0.0001
+  lr: 0.00001
   momentum: 0.9
   gamma: 0.95
   patience: 20
@@ -76,9 +79,9 @@ parameters:
 
   # Regularization
   use_batch_norm: 1
-  l2_reg_conv: 0.0001
+  l2_reg_conv: 0.00001
   l2_reg_dense: 0.0
-  dropout_conv: 0.1
+  dropout_conv: 0.0
   dropout_dense: 0.0
 
   # Postprocessing

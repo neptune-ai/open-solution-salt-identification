@@ -9,9 +9,9 @@ from .postprocessing import binarize
 
 
 def preprocessing_train(config, model_name='unet', suffix=''):
-    if config.general.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPad
-        loader_config = config.loaders.crop_and_pad
+    if config.general.loader_mode == 'resize_and_pad':
+        Loader = loaders.ImageSegmentationLoaderResizePad
+        loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResize
         loader_config = config.loaders.resize
@@ -59,12 +59,12 @@ def preprocessing_train(config, model_name='unet', suffix=''):
 
 
 def preprocessing_inference(config, model_name='unet', suffix=''):
-    if config.general.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPad
-        loader_config = config.loaders.crop_and_pad
+    if config.general.loader_mode == 'resize_and_pad':
+        Loader = loaders.ImageSegmentationLoaderResizePad
+        loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
         Loader = loaders.ImageSegmentationLoaderResize
-        loader_config = config.loaders.crop_and_pad
+        loader_config = config.loaders.resize
     else:
         raise NotImplementedError
 
@@ -97,12 +97,12 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
 
 
 def preprocessing_inference_tta(config, model_name='unet', suffix=''):
-    if config.general.loader_mode == 'crop_and_pad':
-        Loader = loaders.ImageSegmentationLoaderCropPadTTA
-        loader_config = config.loader.crop_and_pad_tta
+    if config.general.loader_mode == 'resize_and_pad':
+        Loader = loaders.ImageSegmentationLoaderResizePad
+        loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResizeTTA
-        loader_config = config.loader.resize_tta
+        Loader = loaders.ImageSegmentationLoaderResize
+        loader_config = config.loaders.resize
     else:
         raise NotImplementedError
 
