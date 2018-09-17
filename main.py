@@ -202,6 +202,7 @@ CONFIG = AttrDict({
             'training_config': {'epochs': PARAMS.epochs_nr,
                                 'shuffle': True,
                                 'batch_size': PARAMS.batch_size_train,
+                                'fine_tuning': PARAMS.fine_tuning,
                                 },
             'callbacks_config': {'model_checkpoint': {
                 'filepath': os.path.join(EXPERIMENT_DIR, 'checkpoints', 'unet', 'best.torch'),
@@ -253,16 +254,17 @@ def unet(config, suffix='', train_mode=True):
     else:
         preprocessing = pipelines.preprocessing_inference(config, suffix=suffix)
 
-    unet = Step(name='unet{}'.format(suffix),
-                transformer=models.PyTorchUNet(**config.model['unet']),
-                input_data=['callback_input'],
-                input_steps=[preprocessing],
-                adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
-                                 'validation_datagen': E(preprocessing.name, 'validation_datagen'),
-                                 'meta_valid': E('callback_input', 'meta_valid'),
-                                 }),
-                is_trainable=True,
-                experiment_directory=config.execution.experiment_dir)
+    unet = utils.FineTuneStep(name='unet{}'.format(suffix),
+                              transformer=models.PyTorchUNet(**config.model['unet']),
+                              input_data=['callback_input'],
+                              input_steps=[preprocessing],
+                              adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
+                                               'validation_datagen': E(preprocessing.name, 'validation_datagen'),
+                                               'meta_valid': E('callback_input', 'meta_valid'),
+                                               }),
+                              is_trainable=True,
+                              fine_tuning=config.model.unet.training_config.fine_tuning,
+                              experiment_directory=config.execution.experiment_dir)
 
     if config.general.loader_mode == 'resize_and_pad':
         size_adjustment_function = partial(postprocessing.crop_image, target_size=config.general.original_size)
