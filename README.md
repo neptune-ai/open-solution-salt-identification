@@ -22,7 +22,7 @@ We are building entirely open solution to this competition. Specifically:
 |[solution 2](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=57f36441-f0aa-4071-a05b-eb45fa0648e5)|0.794|0.798|True|
 |[solution 3](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=c92051e6-97b6-40ba-b293-52fba301f9d7)|0.807|0.801|True|
 |[solution 4](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=94881f72-46ad-4c84-829d-39e87c92937f)|0.802|0.809|True|
-|[solution 5](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=60133d85-ab31-4395-b0e9-37deb25ecc94)|0.804|0.813||
+|[solution 5](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=60133d85-ab31-4395-b0e9-37deb25ecc94)|0.804|0.813|True|
 |[solution 6](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=ab96e5df-3f1b-4516-9df0-4492e0199c71)|0.821|0.827||
 |[solution 7](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=0810785e-ebab-4173-8e9e-8fe560095b77)|0.829|0.837||
 |[solution 8](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=bda70048-f037-4c0d-a096-15ea93fd8924)|XXX|XXX||
