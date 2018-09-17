@@ -8,19 +8,10 @@ from toolkit.pytorch_transformers.models import Model
 
 from .utils import sigmoid, softmax, get_list_of_image_predictions
 from . import callbacks as cbk
-from .unet_models import AlbuNet, UNet11, UNetVGG16, UNetResNet
+from .unet_models import UNetResNet, SaltUNet, SaltLinkNet
+from .lovash_losses import lovasz_softmax
 
-PRETRAINED_NETWORKS = {'VGG11': {'model': UNet11,
-                                 'model_config': {'pretrained': True},
-                                 'init_weights': False},
-                       'VGG16': {'model': UNetVGG16,
-                                 'model_config': {'pretrained': True,
-                                                  'dropout_2d': 0.0, 'is_deconv': True},
-                                 'init_weights': False},
-                       'AlbuNet': {'model': AlbuNet,
-                                   'model_config': {'pretrained': True, 'is_deconv': True},
-                                   'init_weights': False},
-                       'ResNet34': {'model': UNetResNet,
+PRETRAINED_NETWORKS = {'ResNet34': {'model': UNetResNet,
                                     'model_config': {'encoder_depth': 34,
                                                      'num_filters': 32, 'dropout_2d': 0.0,
                                                      'pretrained': True, 'is_deconv': True,
@@ -35,9 +26,20 @@ PRETRAINED_NETWORKS = {'VGG11': {'model': UNet11,
                        'ResNet152': {'model': UNetResNet,
                                      'model_config': {'encoder_depth': 152,
                                                       'num_filters': 32, 'dropout_2d': 0.2,
-                                                      'pretrained': True, 'is_deconv': True,
+                                                      'pretrained': True, 'is_deconv': False,
                                                       },
-                                     'init_weights': False}
+                                     'init_weights': False},
+                       'SaltLinkNet': {'model': SaltLinkNet,
+                                       'model_config': {'dropout_2d': 0.5,
+                                                        'pretrained': True, 'is_deconv': True,
+                                                        },
+                                       'init_weights': False},
+
+                       'SaltUNet': {'model': SaltUNet,
+                                    'model_config': {'dropout_2d': 0.5,
+                                                     'pretrained': True, 'is_deconv': True,
+                                                     },
+                                    'init_weights': False},
                        }
 
 
@@ -55,7 +57,8 @@ class PyTorchUNet(Model):
     def fit(self, datagen, validation_datagen=None, meta_valid=None):
         self._initialize_model_weights()
 
-        self.model = nn.DataParallel(self.model)
+        if not isinstance(self.model, nn.DataParallel):
+            self.model = nn.DataParallel(self.model)
 
         if torch.cuda.is_available():
             self.model = self.model.cuda()
@@ -159,13 +162,7 @@ class PyTorchUNet(Model):
 
     def set_loss(self):
         if self.activation_func == 'softmax':
-            loss_function = partial(mixed_dice_cross_entropy_loss,
-                                    dice_loss=multiclass_dice_loss,
-                                    cross_entropy_loss=nn.CrossEntropyLoss(),
-                                    dice_activation='softmax',
-                                    dice_weight=self.architecture_config['model_params']['dice_weight'],
-                                    cross_entropy_weight=self.architecture_config['model_params']['bce_weight']
-                                    )
+            loss_function = lovash_loss
         elif self.activation_func == 'sigmoid':
             loss_function = partial(mixed_dice_bce_loss,
                                     dice_loss=multiclass_dice_loss,
@@ -226,7 +223,12 @@ class DiceLoss(nn.Module):
 
     def forward(self, output, target):
         return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+
+
+def lovash_loss(output, target):
+    target = target[:, 1, :, :].long()
+    return lovasz_softmax(output, target)
 
 
 def mixed_dice_bce_loss(output, target, dice_weight=0.2, dice_loss=None,
