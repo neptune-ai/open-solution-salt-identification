@@ -41,3 +41,21 @@ def crop_image(image, target_size):
 def binarize(image, threshold):
     image_binarized = (image[1, :, :] > threshold).astype(np.uint8)
     return image_binarized
+
+
+def resize_emptiness_predictions(image, target_size):
+    """Resize image to target size
+
+    Args:
+        image (numpy.ndarray): Image of shape (C x H x W).
+        target_size (tuple): Target size (H, W).
+
+    Returns:
+        numpy.ndarray: Resized image of shape (C x H x W).
+
+    """
+    n_channels = image.shape[0]
+    resized_image = np.zeros((n_channels, target_size[0], target_size[1]))
+    resized_image[0, :, :] = image[0]
+    resized_image[1, :, :] = image[1]
+    return resized_image

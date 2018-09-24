@@ -26,6 +26,8 @@ parameters:
   test_images_dir: /public/challenges/kaggle-salt-identification/test
   metadata_filepath: /output/metadata.csv
   depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
+  auxiliary_metadata_filepath: /output/auxiliary_metadata.csv
+  stacking_data_dir: /output/stacking_data
 
   # Execution
   overwrite: 0
@@ -35,10 +37,10 @@ parameters:
   image_source: disk
   pin_memory: 1
   loader_mode: resize_and_pad
+  target_format: 'png'
   pad_method: edge
   resize_target_size: 102
   pad_size: 13
-  target_format: 'png'
   dev_mode_size: 100
   n_cv_splits: 6
   shuffle: 1
@@ -49,13 +51,13 @@ parameters:
   image_channels: 3
 
   # U-Net parameters
-  unet_output_channels: 2
-  unet_activation: 'sigmoid'
-  encoder: ResNet152
+  network_output_channels: 2
+  network_activation: 'sigmoid'
+  architecture: ResNetWithDepth
   fine_tuning: 0
 
   # U-Net from scratch parameters
-  nr_unet_outputs: 1
+  nr_network_outputs: 1
   n_filters: 16
   conv_kernel: 3
   pool_kernel: 3
@@ -67,7 +69,7 @@ parameters:
   # Training schedule
   epochs_nr: 10000
   batch_size_train: 24
-  batch_size_inference: 64
+  batch_size_inference: 24
   lr: 0.0001
   momentum: 0.9
   patience: 20

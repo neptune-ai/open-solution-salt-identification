@@ -10,63 +10,43 @@ from toolkit.pytorch_transformers.models import Model
 
 from .utils import sigmoid, softmax, get_list_of_image_predictions, pytorch_where
 from . import callbacks as cbk
-from .unet_models import UNetResNet
+from .architectures import UNetResNet, LargeKernelMatters, UNetResNetWithDepth, StackingFCN, StackingFCNWithDepth, \
+    EmptinessClassifier
 from .lovasz_losses import lovasz_hinge
 
-PRETRAINED_NETWORKS = {'ResNet18': {'model': UNetResNet,
-                                    'model_config': {'encoder_depth': 18, 'use_hypercolumn': False,
-                                                     'dropout_2d': 0.0, 'pretrained': True,
-                                                     },
-                                    'init_weights': False},
-                       'ResNet34': {'model': UNetResNet,
-                                    'model_config': {'encoder_depth': 34, 'use_hypercolumn': False,
-                                                     'dropout_2d': 0.0, 'pretrained': True,
-                                                     },
-                                    'init_weights': False},
-                       'ResNet50': {'model': UNetResNet,
-                                    'model_config': {'encoder_depth': 50, 'use_hypercolumn': False,
-                                                     'dropout_2d': 0.0, 'pretrained': True,
-                                                     },
-                                    'init_weights': False},
-                       'ResNet101': {'model': UNetResNet,
-                                     'model_config': {'encoder_depth': 101, 'use_hypercolumn': False,
-                                                      'dropout_2d': 0.0, 'pretrained': True,
-                                                      },
-                                     'init_weights': False},
-                       'ResNet152': {'model': UNetResNet,
-                                     'model_config': {'encoder_depth': 152, 'use_hypercolumn': False,
-                                                      'dropout_2d': 0.0, 'pretrained': True,
-                                                      },
-                                     'init_weights': False},
-                       'ResNetHyper18': {'model': UNetResNet,
-                                         'model_config': {'encoder_depth': 18, 'use_hypercolumn': True,
-                                                          'dropout_2d': 0.0, 'pretrained': True,
-                                                          },
-                                         'init_weights': False},
-                       'ResNetHyper34': {'model': UNetResNet,
+ARCHITECTURES = {'UNetResNet': {'model': UNetResNet,
+                                'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
+                                                 'dropout_2d': 0.0, 'pretrained': True,
+                                                 },
+                                'init_weights': False},
+
+                 'UNetResNetWithDepth': {'model': UNetResNetWithDepth,
                                          'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
                                                           'dropout_2d': 0.0, 'pretrained': True,
                                                           },
                                          'init_weights': False},
-                       'ResNetHyper50': {'model': UNetResNet,
-                                         'model_config': {'encoder_depth': 50, 'use_hypercolumn': True,
-                                                          'dropout_2d': 0.0, 'pretrained': True,
+                 'LargeKernelMatters': {'model': LargeKernelMatters,
+                                        'model_config': {'encoder_depth': 34, 'pretrained': True,
+                                                         'kernel_size': 9, 'internal_channels': 21,
+                                                         'dropout_2d': 0.0, 'use_relu': True
+                                                         },
+                                        'init_weights': False},
+                 'StackingFCN': {'model': StackingFCN,
+                                 'model_config': {'input_model_nr': 18, 'filter_nr': 32, 'dropout_2d': 0.0
+                                                  },
+                                 'init_weights': True},
+                 'StackingFCNWithDepth': {'model': StackingFCNWithDepth,
+                                          'model_config': {'input_model_nr': 18, 'filter_nr': 32, 'dropout_2d': 0.0
+                                                           },
+                                          'init_weights': True},
+                 'EmptinessClassifier': {'model': EmptinessClassifier,
+                                         'model_config': {'encoder_depth': 18, 'pretrained': True,
                                                           },
                                          'init_weights': False},
-                       'ResNetHyper101': {'model': UNetResNet,
-                                          'model_config': {'encoder_depth': 101, 'use_hypercolumn': True,
-                                                           'dropout_2d': 0.0, 'pretrained': True,
-                                                           },
-                                          'init_weights': False},
-                       'ResNetHyper152': {'model': UNetResNet,
-                                          'model_config': {'encoder_depth': 152, 'use_hypercolumn': True,
-                                                           'dropout_2d': 0.0, 'pretrained': True,
-                                                           },
-                                          'init_weights': False},
-                       }
+                 }
 
 
-class PyTorchUNet(Model):
+class SegmentationModel(Model):
     def __init__(self, architecture_config, training_config, callbacks_config):
         super().__init__(architecture_config, training_config, callbacks_config)
         self.activation_func = self.architecture_config['model_params']['activation']
@@ -75,7 +55,7 @@ class PyTorchUNet(Model):
         self.weight_regularization = weight_regularization
         self.optimizer = optim.Adam(self.weight_regularization(self.model, **architecture_config['regularizer_params']),
                                     **architecture_config['optimizer_params'])
-        self.callbacks = callbacks_unet(self.callbacks_config)
+        self.callbacks = callbacks_network(self.callbacks_config)
 
     def fit(self, datagen, validation_datagen=None, meta_valid=None):
         self._initialize_model_weights()
@@ -179,8 +159,8 @@ class PyTorchUNet(Model):
         return outputs
 
     def set_model(self):
-        encoder = self.architecture_config['model_params']['encoder']
-        config = PRETRAINED_NETWORKS[encoder]
+        architecture = self.architecture_config['model_params']['architecture']
+        config = ARCHITECTURES[architecture]
         self.model = config['model'](num_classes=self.architecture_config['model_params']['out_channels'],
                                      **config['model_config'])
         self._initialize_model_weights = lambda: None
@@ -190,6 +170,7 @@ class PyTorchUNet(Model):
             raise NotImplementedError('No softmax loss defined')
         elif self.activation_func == 'sigmoid':
             loss_function = lovasz_loss
+            # loss_function = nn.BCEWithLogitsLoss()
         else:
             raise Exception('Only softmax and sigmoid activations are allowed')
         self.loss_function = [('mask', loss_function, 1.0)]
@@ -207,6 +188,84 @@ class PyTorchUNet(Model):
         else:
             self.model.load_state_dict(torch.load(filepath, map_location=lambda storage, loc: storage))
         return self
+
+
+class SegmentationModelWithDepth(SegmentationModel):
+    def __init__(self, architecture_config, training_config, callbacks_config):
+        super().__init__(architecture_config, training_config, callbacks_config)
+        self.activation_func = self.architecture_config['model_params']['activation']
+        self.set_model()
+        self.set_loss()
+        self.weight_regularization = weight_regularization
+        self.optimizer = optim.Adam(self.weight_regularization(self.model, **architecture_config['regularizer_params']),
+                                    **architecture_config['optimizer_params'])
+        self.callbacks = callbacks_network(self.callbacks_config)
+
+    def _fit_loop(self, data):
+        X = data[0]
+        D = data[1]
+        targets_tensors = data[2:]
+
+        if torch.cuda.is_available():
+            X = Variable(X).cuda()
+            D = Variable(D).cuda()
+            targets_var = []
+            for target_tensor in targets_tensors:
+                targets_var.append(Variable(target_tensor).cuda())
+        else:
+            X = Variable(X)
+            D = Variable(D)
+            targets_var = []
+            for target_tensor in targets_tensors:
+                targets_var.append(Variable(target_tensor))
+
+        self.optimizer.zero_grad()
+        outputs_batch = self.model(X, D)
+        partial_batch_losses = {}
+
+        if len(self.output_names) == 1:
+            for (name, loss_function, weight), target in zip(self.loss_function, targets_var):
+                batch_loss = loss_function(outputs_batch, target) * weight
+        else:
+            for (name, loss_function, weight), output, target in zip(self.loss_function, outputs_batch, targets_var):
+                partial_batch_losses[name] = loss_function(output, target) * weight
+            batch_loss = sum(partial_batch_losses.values())
+        partial_batch_losses['sum'] = batch_loss
+
+        batch_loss.backward()
+        self.optimizer.step()
+
+        return partial_batch_losses
+
+    def _transform(self, datagen, validation_datagen=None, **kwargs):
+        self.model.eval()
+
+        batch_gen, steps = datagen
+        outputs = {}
+        for batch_id, data in enumerate(batch_gen):
+            X = data[0]
+            D = data[1]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                D = Variable(D, volatile=True).cuda()
+            else:
+                X = Variable(X, volatile=True)
+                D = Variable(D, volatile=True)
+            outputs_batch = self.model(X, D)
+
+            if len(self.output_names) == 1:
+                outputs.setdefault(self.output_names[0], []).append(outputs_batch.data.cpu().numpy())
+            else:
+                for name, output in zip(self.output_names, outputs_batch):
+                    output_ = output.data.cpu().numpy()
+                    outputs.setdefault(name, []).append(output_)
+            if batch_id == steps:
+                break
+        self.model.train()
+        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in
+                   outputs.items()}
+        return outputs
 
 
 class FocalWithLogitsLoss(nn.Module):
@@ -235,7 +294,7 @@ class DiceLoss(nn.Module):
 
     def forward(self, output, target):
         return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
 def weight_regularization(model, regularize, weight_decay_conv2d):
@@ -249,12 +308,13 @@ def weight_regularization(model, regularize, weight_decay_conv2d):
     return parameter_list
 
 
-def callbacks_unet(callbacks_config):
+def callbacks_network(callbacks_config):
     experiment_timing = cbk.ExperimentTiming(**callbacks_config['experiment_timing'])
     model_checkpoints = cbk.ModelCheckpoint(**callbacks_config['model_checkpoint'])
     lr_scheduler = cbk.ReduceLROnPlateauScheduler(**callbacks_config['reduce_lr_on_plateau_scheduler'])
     training_monitor = cbk.TrainingMonitor(**callbacks_config['training_monitor'])
     validation_monitor = cbk.ValidationMonitor(**callbacks_config['validation_monitor'])
+    # validation_monitor = cbk.ValidationMonitorEmptiness(**callbacks_config['validation_monitor'])
     neptune_monitor = cbk.NeptuneMonitor(**callbacks_config['neptune_monitor'])
     early_stopping = cbk.EarlyStopping(**callbacks_config['early_stopping'])
 

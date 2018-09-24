@@ -10,6 +10,7 @@ from functools import partial
 from itertools import product
 import multiprocessing as mp
 from scipy.stats import gmean
+from skimage.transform import resize
 from tqdm import tqdm
 import json
 from steppy.base import BaseTransformer
@@ -71,15 +72,22 @@ class XYSplit(BaseTransformer):
     def __init__(self, train_mode, x_columns, y_columns):
         self.train_mode = train_mode
         super().__init__()
-        self.x_columns = x_columns
-        self.y_columns = y_columns
+        if len(x_columns) == 1:
+            self.x_columns = x_columns[0]
+        else:
+            self.x_columns = x_columns
+
+        if len(y_columns) == 1:
+            self.y_columns = y_columns[0]
+        else:
+            self.y_columns = y_columns
         self.columns_to_get = None
         self.target_columns = None
 
     def transform(self, meta):
-        X = meta[self.x_columns[0]].values
+        X = meta[self.x_columns].values
         if self.train_mode:
-            y = meta[self.y_columns[0]].values
+            y = meta[self.y_columns].values
         else:
             y = None
 
@@ -87,7 +95,7 @@ class XYSplit(BaseTransformer):
                 'y': y}
 
 
-class ImageSegmentationBaseDataset(Dataset):
+class ImageSegmentationDataset(Dataset):
     def __init__(self, X, y, train_mode,
                  image_transform, image_augment_with_target,
                  mask_transform, image_augment,
@@ -176,24 +184,215 @@ class ImageSegmentationBaseDataset(Dataset):
         return masks
 
     def load_target(self, data_source, index, load_func):
-        raise NotImplementedError
-
-
-class ImageSegmentationJsonDataset(ImageSegmentationBaseDataset):
-    def load_target(self, data_source, index, load_func):
-        Mi = load_func(data_source, index, filetype='json')
-        return Mi
-
-
-class ImageSegmentationPngDataset(ImageSegmentationBaseDataset):
-    def load_target(self, data_source, index, load_func):
         Mi = load_func(data_source, index, filetype='png', grayscale=True)
         Mi = from_pil(Mi)
         target = [to_pil(Mi == class_nr) for class_nr in [0, 1]]
         return target
 
 
-class ImageSegmentationTTADataset(ImageSegmentationBaseDataset):
+class EmptinessDataset(Dataset):
+    def __init__(self, X, y, train_mode,
+                 image_transform, image_augment_with_target,
+                 mask_transform, image_augment,
+                 image_source='memory'):
+        super().__init__()
+        self.X = X
+        if y is not None:
+            self.y = y
+        else:
+            self.y = None
+
+        self.train_mode = train_mode
+        self.image_transform = image_transform
+        self.mask_transform = mask_transform
+        self.image_augment = image_augment if image_augment is not None else ImgAug(iaa.Noop())
+        self.image_augment_with_target = image_augment_with_target if image_augment_with_target is not None else ImgAug(
+            iaa.Noop())
+
+        self.image_source = image_source
+
+    def __len__(self):
+        if self.image_source == 'memory':
+            return len(self.X[0])
+        elif self.image_source == 'disk':
+            return self.X.shape[0]
+
+    def __getitem__(self, index):
+        if self.image_source == 'memory':
+            load_func = self.load_from_memory
+        elif self.image_source == 'disk':
+            load_func = self.load_from_disk
+        else:
+            raise NotImplementedError("Possible loading options: 'memory' and 'disk'!")
+
+        Xi = load_func(self.X, index, filetype='png', grayscale=False)
+
+        if self.y is not None:
+            yi = self.y[index]
+
+            Xi = from_pil(Xi)
+            Xi = self.image_augment_with_target(Xi)
+            Xi = self.image_augment(Xi)
+            Xi = to_pil(Xi)
+
+            if self.mask_transform is not None:
+                yi = self.mask_transform(yi)
+
+            if self.image_transform is not None:
+                Xi = self.image_transform(Xi)
+            return Xi, yi
+        else:
+            Xi = from_pil(Xi)
+            Xi = self.image_augment(Xi)
+            Xi = to_pil(Xi)
+
+            if self.image_transform is not None:
+                Xi = self.image_transform(Xi)
+            return Xi
+
+    def load_from_memory(self, data_source, index, **kwargs):
+        return data_source[0][index]
+
+    def load_from_disk(self, data_source, index, *, filetype, grayscale=False):
+        if filetype == 'png':
+            img_filepath = data_source[index]
+            return self.load_image(img_filepath, grayscale=grayscale)
+        elif filetype == 'json':
+            json_filepath = data_source[index]
+            return self.read_json(json_filepath)
+        else:
+            raise Exception('files must be png or json')
+
+    def load_image(self, img_filepath, grayscale):
+        image = Image.open(img_filepath, 'r')
+        if not grayscale:
+            image = image.convert('RGB')
+        else:
+            image = image.convert('L').point(lambda x: 0 if x < 128 else 1)
+        return image
+
+
+class ImageSegmentationDatasetWithDepth(ImageSegmentationDataset):
+    def __init__(self, X, y, train_mode,
+                 image_transform, image_augment_with_target,
+                 mask_transform, image_augment,
+                 image_source='memory'):
+        super().__init__(X, y, train_mode,
+                         image_transform, image_augment_with_target,
+                         mask_transform, image_augment,
+                         image_source='memory')
+        self.X = X[:, 0]
+        self.D = X[:, 1]
+
+        if y is not None:
+            self.y = y
+        else:
+            self.y = None
+
+        self.train_mode = train_mode
+        self.image_transform = image_transform
+        self.mask_transform = mask_transform
+        self.image_augment = image_augment if image_augment is not None else ImgAug(iaa.Noop())
+        self.image_augment_with_target = image_augment_with_target if image_augment_with_target is not None else ImgAug(
+            iaa.Noop())
+
+        self.image_source = image_source
+
+    def __getitem__(self, index):
+        if self.image_source == 'memory':
+            load_func = self.load_from_memory
+        elif self.image_source == 'disk':
+            load_func = self.load_from_disk
+        else:
+            raise NotImplementedError("Possible loading options: 'memory' and 'disk'!")
+
+        Xi = load_func(self.X, index, filetype='png', grayscale=False)
+        Di = self.D[index]
+        Di = torch.from_numpy(np.array([Di / 1000.])).type(torch.FloatTensor)
+
+        if self.y is not None:
+            Mi = self.load_target(self.y, index, load_func)
+            Xi, *Mi = from_pil(Xi, *Mi)
+            Xi, *Mi = self.image_augment_with_target(Xi, *Mi)
+            Xi = self.image_augment(Xi)
+            Xi, *Mi = to_pil(Xi, *Mi)
+
+            if self.mask_transform is not None:
+                Mi = [self.mask_transform(m) for m in Mi]
+
+            if self.image_transform is not None:
+                Xi = self.image_transform(Xi)
+
+            Mi = torch.cat(Mi, dim=0)
+            return Xi, Di, Mi
+        else:
+            Xi = from_pil(Xi)
+            Xi = self.image_augment(Xi)
+            Xi = to_pil(Xi)
+
+            if self.image_transform is not None:
+                Xi = self.image_transform(Xi)
+            return Xi, Di
+
+
+class ImageSegmentationStackingDataset(ImageSegmentationDataset):
+    def __getitem__(self, index):
+        Xi = self.load_image(self.X[index])
+        Xi = self.image_transform(Xi)
+
+        if self.y is not None:
+            Mi = self.load_target(self.y[index])
+            Mi = [self.mask_transform(m) for m in Mi]
+            Mi = torch.cat(Mi, dim=0)
+            return Xi, Mi
+        else:
+            return Xi
+
+    def load_image(self, img_filepath, **kwargs):
+        image = joblib.load(img_filepath)
+        return image
+
+    def load_target(self, img_filepath, **kwargs):
+        Mi = Image.open(img_filepath, 'r')
+        Mi = Mi.convert('L').point(lambda x: 0 if x < 128 else 1)
+        Mi = from_pil(Mi)
+        target = [to_pil(Mi == class_nr) for class_nr in [0, 1]]
+        return target
+
+
+class ImageSegmentationStackingDatasetWithDepth(ImageSegmentationDataset):
+    def __init__(self, X, y, **kwargs):
+        super().__init__(X, y, **kwargs)
+        self.X = X[:, 0]
+        self.D = X[:, 1]
+
+    def __getitem__(self, index):
+        Xi = self.load_image(self.X[index])
+        Xi = self.image_transform(Xi)
+        Di = self.D[index]
+        Di = torch.from_numpy(np.array([Di / 1000.])).type(torch.FloatTensor)
+
+        if self.y is not None:
+            Mi = self.load_target(self.y[index])
+            Mi = [self.mask_transform(m) for m in Mi]
+            Mi = torch.cat(Mi, dim=0)
+            return Xi, Di, Mi
+        else:
+            return Xi, Di
+
+    def load_image(self, img_filepath, **kwargs):
+        image = joblib.load(img_filepath)
+        return image
+
+    def load_target(self, img_filepath, **kwargs):
+        Mi = Image.open(img_filepath, 'r')
+        Mi = Mi.convert('L').point(lambda x: 0 if x < 128 else 1)
+        Mi = from_pil(Mi)
+        target = [to_pil(Mi == class_nr) for class_nr in [0, 1]]
+        return target
+
+
+class ImageSegmentationTTADataset(ImageSegmentationDataset):
     def __init__(self, tta_params, tta_transform, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tta_params = tta_params
@@ -222,6 +421,39 @@ class ImageSegmentationTTADataset(ImageSegmentationBaseDataset):
             Xi = self.image_transform(Xi)
 
         return Xi
+
+
+class ImageSegmentationTTADatasetWithDepth(ImageSegmentationDatasetWithDepth):
+    def __init__(self, tta_params, tta_transform, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tta_params = tta_params
+        self.tta_transform = tta_transform
+
+    def __getitem__(self, index):
+        if self.image_source == 'memory':
+            load_func = self.load_from_memory
+        elif self.image_source == 'disk':
+            load_func = self.load_from_disk
+        else:
+            raise NotImplementedError("Possible loading options: 'memory' and 'disk'!")
+
+        Xi = load_func(self.X, index, filetype='png', grayscale=False)
+        Xi = from_pil(Xi)
+        Di = self.D[index]
+        Di = torch.from_numpy(np.array([Di / 1000.])).type(torch.FloatTensor)
+
+        if self.image_augment is not None:
+            Xi = self.image_augment(Xi)
+
+        if self.tta_params is not None:
+            tta_transform_specs = self.tta_params[index]
+            Xi = self.tta_transform(Xi, tta_transform_specs)
+        Xi = to_pil(Xi)
+
+        if self.image_transform is not None:
+            Xi = self.image_transform(Xi)
+
+        return Xi, Di
 
 
 class ImageSegmentationLoaderBasic(BaseTransformer):
@@ -329,6 +561,45 @@ class ImageSegmentationLoaderBasicTTA(ImageSegmentationLoaderBasic):
         return datagen, steps
 
 
+class ImageSegmentationLoaderStacking(ImageSegmentationLoaderBasic):
+    def __init__(self, train_mode, loader_params, dataset_params, augmentation_params):
+        super().__init__(train_mode, loader_params, dataset_params, augmentation_params)
+
+        self.image_transform = transforms.Compose([ResizeArray(shape=(self.dataset_params.h, self.dataset_params.w)),
+                                                   transforms.Lambda(to_tensor_stacking),
+                                                   ])
+
+        self.mask_transform = transforms.Compose([transforms.Resize((self.dataset_params.h,
+                                                                     self.dataset_params.w)),
+                                                  transforms.Lambda(preprocess_target),
+                                                  ])
+        if self.dataset_params.use_depth:
+            self.dataset = ImageSegmentationStackingDatasetWithDepth
+        else:
+            self.dataset = ImageSegmentationStackingDataset
+
+
+class EmptinessLoader(ImageSegmentationLoaderBasic):
+    def __init__(self, train_mode, loader_params, dataset_params, augmentation_params):
+        super().__init__(train_mode, loader_params, dataset_params, augmentation_params)
+
+        self.image_transform = transforms.Compose([transforms.Grayscale(num_output_channels=3),
+                                                   transforms.ToTensor(),
+                                                   transforms.Normalize(mean=self.dataset_params.MEAN,
+                                                                        std=self.dataset_params.STD),
+                                                   AddDepthChannels()
+                                                   ])
+        self.mask_transform = transforms.Lambda(preprocess_emptiness_target)
+
+        self.image_augment_train = ImgAug(self.augmentation_params['image_augment_train'])
+        self.image_augment_with_target_train = ImgAug(self.augmentation_params['image_augment_with_target_train'])
+        self.image_augment_inference = ImgAug(self.augmentation_params['image_augment_inference'])
+        self.image_augment_with_target_inference = ImgAug(
+            self.augmentation_params['image_augment_with_target_inference'])
+
+        self.dataset = EmptinessDataset
+
+
 class ImageSegmentationLoader(ImageSegmentationLoaderBasic):
     def __init__(self, train_mode, loader_params, dataset_params, augmentation_params):
         super().__init__(train_mode, loader_params, dataset_params, augmentation_params)
@@ -339,9 +610,7 @@ class ImageSegmentationLoader(ImageSegmentationLoaderBasic):
                                                                         std=self.dataset_params.STD),
                                                    AddDepthChannels()
                                                    ])
-        self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
-                                                  transforms.Lambda(to_tensor),
-                                                  ])
+        self.mask_transform = transforms.Lambda(preprocess_target)
 
         self.image_augment_train = ImgAug(self.augmentation_params['image_augment_train'])
         self.image_augment_with_target_train = ImgAug(self.augmentation_params['image_augment_with_target_train'])
@@ -349,12 +618,10 @@ class ImageSegmentationLoader(ImageSegmentationLoaderBasic):
         self.image_augment_with_target_inference = ImgAug(
             self.augmentation_params['image_augment_with_target_inference'])
 
-        if self.dataset_params.target_format == 'png':
-            self.dataset = ImageSegmentationPngDataset
-        elif self.dataset_params.target_format == 'json':
-            self.dataset = ImageSegmentationJsonDataset
+        if self.dataset_params.use_depth:
+            self.dataset = ImageSegmentationDatasetWithDepth
         else:
-            raise Exception('files must be png or json')
+            self.dataset = ImageSegmentationDataset
 
 
 class ImageSegmentationLoaderTTA(ImageSegmentationLoaderBasicTTA):
@@ -367,14 +634,15 @@ class ImageSegmentationLoaderTTA(ImageSegmentationLoaderBasicTTA):
                                                                         std=self.dataset_params.STD),
                                                    AddDepthChannels()
                                                    ])
-        self.mask_transform = transforms.Compose([transforms.Lambda(to_array),
-                                                  transforms.Lambda(to_tensor),
-                                                  ])
+        self.mask_transform = transforms.Lambda(preprocess_target)
 
         self.image_augment_inference = ImgAug(self.augmentation_params['image_augment_inference'])
         self.image_augment_with_target_inference = ImgAug(
             self.augmentation_params['image_augment_with_target_inference'])
-        self.dataset = ImageSegmentationTTADataset
+        if self.dataset_params.use_depth:
+            self.dataset = ImageSegmentationTTADatasetWithDepth
+        else:
+            self.dataset = ImageSegmentationTTADataset
 
 
 class MetaTestTimeAugmentationGenerator(BaseTransformer):
@@ -492,14 +760,36 @@ def aggregate_augmentations(img_id, images, tta_params, tta_inverse_transform, i
     return tta_averaged
 
 
-def to_array(x):
+def preprocess_target(x):
     x_ = x.convert('L')  # convert image to monochrome
     x_ = np.array(x_)
     x_ = x_.astype(np.float32)
-    return x_
-
-
-def to_tensor(x):
-    x_ = np.expand_dims(x, axis=0)
+    x_ = np.expand_dims(x_, axis=0)
     x_ = torch.from_numpy(x_)
     return x_
+
+
+def to_tensor_stacking(x):
+    x = x.transpose(2, 0, 1)
+    x = torch.from_numpy(x).type(torch.FloatTensor)
+    return x
+
+
+def preprocess_emptiness_target(x):
+    x_ = np.zeros((2, 1, 1))
+    x_[0, :, :] = int(x == 0)
+    x_[1, :, :] = x
+    x_ = torch.from_numpy(x_).type(torch.FloatTensor)
+    return x_
+
+
+class ResizeArray:
+    def __init__(self, shape):
+        self.h, self.w = shape
+
+    def __call__(self, x):
+        _, _, c = x.shape
+        x_resized = np.zeros((self.h, self.w, c))
+        for i in range(c):
+            x_resized[:, :, i] = resize(x[:, :, i], (self.h, self.w), mode='constant')
+        return x_resized
