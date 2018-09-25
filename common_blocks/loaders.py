@@ -329,7 +329,7 @@ class ImageSegmentationLoaderBasicTTA(ImageSegmentationLoaderBasic):
         return datagen, steps
 
 
-class ImageSegmentationLoaderResizePad(ImageSegmentationLoaderBasic):
+class ImageSegmentationLoader(ImageSegmentationLoaderBasic):
     def __init__(self, train_mode, loader_params, dataset_params, augmentation_params):
         super().__init__(train_mode, loader_params, dataset_params, augmentation_params)
 
@@ -345,7 +345,8 @@ class ImageSegmentationLoaderResizePad(ImageSegmentationLoaderBasic):
         self.image_augment_train = ImgAug(self.augmentation_params['image_augment_train'])
         self.image_augment_with_target_train = ImgAug(self.augmentation_params['image_augment_with_target_train'])
         self.image_augment_inference = ImgAug(self.augmentation_params['image_augment_inference'])
-        self.image_augment_with_target_inference = ImgAug(self.augmentation_params['image_augment_with_target_inference'])
+        self.image_augment_with_target_inference = ImgAug(
+            self.augmentation_params['image_augment_with_target_inference'])
 
         if self.dataset_params.target_format == 'png':
             self.dataset = ImageSegmentationPngDataset
@@ -355,7 +356,7 @@ class ImageSegmentationLoaderResizePad(ImageSegmentationLoaderBasic):
             raise Exception('files must be png or json')
 
 
-class ImageSegmentationLoaderPadTTA(ImageSegmentationLoaderBasicTTA):
+class ImageSegmentationLoaderTTA(ImageSegmentationLoaderBasicTTA):
     def __init__(self, loader_params, dataset_params, augmentation_params):
         super().__init__(loader_params, dataset_params, augmentation_params)
 
@@ -369,53 +370,8 @@ class ImageSegmentationLoaderPadTTA(ImageSegmentationLoaderBasicTTA):
                                                   ])
 
         self.image_augment_inference = ImgAug(self.augmentation_params['image_augment_inference'])
-        self.image_augment_with_target_inference = ImgAug(self.augmentation_params['image_augment_with_target_inference'])
-        self.dataset = ImageSegmentationTTADataset
-
-
-class ImageSegmentationLoaderResize(ImageSegmentationLoaderBasic):
-    def __init__(self, train_mode, loader_params, dataset_params, augmentation_params):
-        super().__init__(train_mode, loader_params, dataset_params, augmentation_params)
-
-        self.image_transform = transforms.Compose([transforms.Resize((self.dataset_params.h, self.dataset_params.w)),
-                                                   transforms.Grayscale(num_output_channels=3),
-                                                   transforms.ToTensor(),
-                                                   transforms.Normalize(mean=self.dataset_params.MEAN,
-                                                                        std=self.dataset_params.STD),
-                                                   ])
-        self.mask_transform = transforms.Compose([transforms.Resize((self.dataset_params.h, self.dataset_params.w),
-                                                                    interpolation=0),
-                                                  transforms.Lambda(to_array),
-                                                  transforms.Lambda(to_tensor),
-                                                  ])
-
-        self.image_augment_train = ImgAug(self.augmentation_params['image_augment_train'])
-        self.image_augment_with_target_train = ImgAug(self.augmentation_params['image_augment_with_target_train'])
-
-        if self.dataset_params.target_format == 'png':
-            self.dataset = ImageSegmentationPngDataset
-        elif self.dataset_params.target_format == 'json':
-            self.dataset = ImageSegmentationJsonDataset
-        else:
-            raise Exception('files must be png or json')
-
-
-class ImageSegmentationLoaderResizeTTA(ImageSegmentationLoaderBasicTTA):
-    def __init__(self, loader_params, dataset_params, augmentation_params):
-        super().__init__(loader_params, dataset_params, augmentation_params)
-
-        self.image_transform = transforms.Compose([transforms.Resize((self.dataset_params.h, self.dataset_params.w)),
-                                                   transforms.Grayscale(num_output_channels=3),
-                                                   transforms.ToTensor(),
-                                                   transforms.Normalize(mean=self.dataset_params.MEAN,
-                                                                        std=self.dataset_params.STD),
-                                                   ])
-        self.mask_transform = transforms.Compose([transforms.Resize((self.dataset_params.h, self.dataset_params.w),
-                                                                    interpolation=0),
-                                                  transforms.Lambda(to_array),
-                                                  transforms.Lambda(to_tensor),
-                                                  ])
-
+        self.image_augment_with_target_inference = ImgAug(
+            self.augmentation_params['image_augment_with_target_inference'])
         self.dataset = ImageSegmentationTTADataset
 
 

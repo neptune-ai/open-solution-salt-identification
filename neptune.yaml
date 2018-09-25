@@ -1,7 +1,7 @@
-#project: USERNAME/PROJECT_NAME
+project: USERNAME/PROJECT_NAME
 
 name: tgs_salt_identification_challenge
-tags: [solution-5]
+tags: [solution-6]
 
 metric:
   channel: 'IOUT'
@@ -24,18 +24,18 @@ parameters:
   # Data Paths
   train_images_dir: /public/challenges/kaggle-salt-identification/train
   test_images_dir: /public/challenges/kaggle-salt-identification/test
-  metadata_filepath: /output/metadata.csv # if you are loading from previous experiment change it to  /input/metadata.csv
+  metadata_filepath: /output/metadata.csv
   depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
 
   # Execution
   overwrite: 0
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-5'
+  kaggle_message: 'solution-7'
   image_source: disk
   pin_memory: 1
   loader_mode: resize_and_pad
-  pad_method: reflect
+  pad_method: edge
   resize_target_size: 102
   pad_size: 13
   target_format: 'png'
@@ -68,8 +68,8 @@ parameters:
 
   # Training schedule
   epochs_nr: 10000
-  batch_size_train: 24
-  batch_size_inference: 64
+  batch_size_train: 20
+  batch_size_inference: 20
   lr: 0.0001
   momentum: 0.9
   gamma: 0.95

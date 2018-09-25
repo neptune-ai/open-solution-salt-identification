@@ -10,10 +10,8 @@ from .postprocessing import binarize
 
 def preprocessing_train(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
-        Loader = loaders.ImageSegmentationLoaderResizePad
         loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResize
         loader_config = config.loaders.resize
     else:
         raise NotImplementedError
@@ -47,7 +45,7 @@ def preprocessing_train(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(train_mode=True, **loader_config),
+                  transformer=loaders.ImageSegmentationLoader(train_mode=True, **loader_config),
                   input_steps=[reader_train, reader_inference],
                   adapter=Adapter({'X': E(reader_train.name, 'X'),
                                    'y': E(reader_train.name, 'y'),
@@ -60,10 +58,8 @@ def preprocessing_train(config, model_name='unet', suffix=''):
 
 def preprocessing_inference(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
-        Loader = loaders.ImageSegmentationLoaderResizePad
         loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResize
         loader_config = config.loaders.resize
     else:
         raise NotImplementedError
@@ -86,7 +82,7 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(train_mode=False, **loader_config),
+                  transformer=loaders.ImageSegmentationLoader(train_mode=False, **loader_config),
                   input_steps=[reader_inference],
                   adapter=Adapter({'X': E(reader_inference.name, 'X'),
                                    'y': E(reader_inference.name, 'y'),
@@ -98,11 +94,9 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
 
 def preprocessing_inference_tta(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
-        Loader = loaders.ImageSegmentationLoaderResizePad
-        loader_config = config.loaders.resize_and_pad
+        loader_config = config.loaders.pad_tta
     elif config.general.loader_mode == 'resize':
-        Loader = loaders.ImageSegmentationLoaderResize
-        loader_config = config.loaders.resize
+        loader_config = config.loaders.resize_tta
     else:
         raise NotImplementedError
 
@@ -135,7 +129,7 @@ def preprocessing_inference_tta(config, model_name='unet', suffix=''):
         raise NotImplementedError
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=Loader(**loader_config),
+                  transformer=loaders.ImageSegmentationLoaderTTA(**loader_config),
                   input_steps=[tta_generator],
                   adapter=Adapter({'X': E(tta_generator.name, 'X_tta'),
                                    'tta_params': E(tta_generator.name, 'tta_params'),

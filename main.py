@@ -148,7 +148,12 @@ CONFIG = AttrDict({
                                              },
 
                            'augmentation_params': {'image_augment_train': aug.intensity_seq,
-                                                   'image_augment_with_target_train': aug.affine_seq
+                                                   'image_augment_with_target_train': aug.resize_seq(
+                                                       resize_target_size=PARAMS.resize_target_size),
+                                                   'image_augment_inference': aug.resize_to_fit_net(
+                                                       resize_target_size=PARAMS.resize_target_size),
+                                                   'image_augment_with_target_inference': aug.resize_to_fit_net(
+                                                       resize_target_size=PARAMS.resize_target_size)
                                                    },
                            },
                 'resize_tta': {'dataset_params': {'h': PARAMS.image_h,
@@ -170,8 +175,13 @@ CONFIG = AttrDict({
                                                                },
                                                  },
 
-                               'augmentation_params': {'tta_transform': aug.test_time_augmentation_transform
-                                                       },
+                               'augmentation_params': {
+                                   'image_augment_inference': aug.resize_to_fit_net(
+                                       resize_target_size=PARAMS.resize_target_size),
+                                   'image_augment_with_target_inference': aug.resize_to_fit_net(
+                                       resize_target_size=PARAMS.resize_target_size),
+                                   'tta_transform': aug.test_time_augmentation_transform
+                               },
                                },
                 },
     'model': {
@@ -202,6 +212,7 @@ CONFIG = AttrDict({
             'training_config': {'epochs': PARAMS.epochs_nr,
                                 'shuffle': True,
                                 'batch_size': PARAMS.batch_size_train,
+                                'fine_tuning': PARAMS.fine_tuning,
                                 },
             'callbacks_config': {'model_checkpoint': {
                 'filepath': os.path.join(EXPERIMENT_DIR, 'checkpoints', 'unet', 'best.torch'),
@@ -253,16 +264,17 @@ def unet(config, suffix='', train_mode=True):
     else:
         preprocessing = pipelines.preprocessing_inference(config, suffix=suffix)
 
-    unet = Step(name='unet{}'.format(suffix),
-                transformer=models.PyTorchUNet(**config.model['unet']),
-                input_data=['callback_input'],
-                input_steps=[preprocessing],
-                adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
-                                 'validation_datagen': E(preprocessing.name, 'validation_datagen'),
-                                 'meta_valid': E('callback_input', 'meta_valid'),
-                                 }),
-                is_trainable=True,
-                experiment_directory=config.execution.experiment_dir)
+    unet = utils.FineTuneStep(name='unet{}'.format(suffix),
+                              transformer=models.PyTorchUNet(**config.model['unet']),
+                              input_data=['callback_input'],
+                              input_steps=[preprocessing],
+                              adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
+                                               'validation_datagen': E(preprocessing.name, 'validation_datagen'),
+                                               'meta_valid': E('callback_input', 'meta_valid'),
+                                               }),
+                              is_trainable=True,
+                              fine_tuning=config.model.unet.training_config.fine_tuning,
+                              experiment_directory=config.execution.experiment_dir)
 
     if config.general.loader_mode == 'resize_and_pad':
         size_adjustment_function = partial(postprocessing.crop_image, target_size=config.general.original_size)

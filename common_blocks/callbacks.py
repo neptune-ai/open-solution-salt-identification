@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import torch
+from PIL import Image
 import neptune
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import ExponentialLR

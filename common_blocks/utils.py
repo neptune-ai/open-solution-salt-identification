@@ -393,3 +393,77 @@ def clean_object_from_memory(obj):
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+class FineTuneStep(Step):
+    def __init__(self,
+                 name,
+                 transformer,
+                 experiment_directory,
+                 input_data=None,
+                 input_steps=None,
+                 adapter=None,
+                 is_trainable=False,
+                 cache_output=False,
+                 persist_output=False,
+                 load_persisted_output=False,
+                 force_fitting=False,
+                 fine_tuning=False,
+                 persist_upstream_pipeline_structure=False):
+        super().__init__(name,
+                         transformer,
+                         experiment_directory,
+                         input_data=input_data,
+                         input_steps=input_steps,
+                         adapter=adapter,
+                         is_trainable=is_trainable,
+                         cache_output=cache_output,
+                         persist_output=persist_output,
+                         load_persisted_output=load_persisted_output,
+                         force_fitting=force_fitting,
+                         persist_upstream_pipeline_structure=persist_upstream_pipeline_structure)
+        self.fine_tuning = fine_tuning
+
+    def _cached_fit_transform(self, step_inputs):
+        if self.is_trainable:
+            if self.transformer_is_cached:
+                if self.force_fitting and self.fine_tuning:
+                    raise ValueError('only one of force_fitting or fine_tuning can be True')
+                elif self.force_fitting:
+                    logger.info('Step {}, fitting and transforming...'.format(self.name))
+                    step_output_data = self.transformer.fit_transform(**step_inputs)
+                    logger.info('Step {}, persisting transformer to the {}'
+                                .format(self.name, self.exp_dir_transformers_step))
+                    self.transformer.persist(self.exp_dir_transformers_step)
+                elif self.fine_tuning:
+                    logger.info('Step {}, loading transformer from the {}'
+                                .format(self.name, self.exp_dir_transformers_step))
+                    self.transformer.load(self.exp_dir_transformers_step)
+                    logger.info('Step {}, transforming...'.format(self.name))
+                    step_output_data = self.transformer.fit_transform(**step_inputs)
+                    self.transformer.persist(self.exp_dir_transformers_step)
+                else:
+                    logger.info('Step {}, loading transformer from the {}'
+                                .format(self.name, self.exp_dir_transformers_step))
+                    self.transformer.load(self.exp_dir_transformers_step)
+                    logger.info('Step {}, transforming...'.format(self.name))
+                    step_output_data = self.transformer.transform(**step_inputs)
+            else:
+                logger.info('Step {}, fitting and transforming...'.format(self.name))
+                step_output_data = self.transformer.fit_transform(**step_inputs)
+                logger.info('Step {}, persisting transformer to the {}'
+                            .format(self.name, self.exp_dir_transformers_step))
+                self.transformer.persist(self.exp_dir_transformers_step)
+        else:
+            logger.info('Step {}, transforming...'.format(self.name))
+            step_output_data = self.transformer.transform(**step_inputs)
+
+        if self.cache_output:
+            logger.info('Step {}, caching output to the {}'
+                        .format(self.name, self.exp_dir_cache_step))
+            self._persist_output(step_output_data, self.exp_dir_cache_step)
+        if self.persist_output:
+            logger.info('Step {}, persisting output to the {}'
+                        .format(self.name, self.exp_dir_outputs_step))
+            self._persist_output(step_output_data, self.exp_dir_outputs_step)
+        return step_output_data
