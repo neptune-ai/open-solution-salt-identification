@@ -21,6 +21,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 ## Learn about our solutions
 1. Check [Kaggle forum](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/61949) and participate in the discussions.
 1. See solutions below:
+
 | Link to Experiments | CV | LB | Open |
 |:---:|:---:|:---:|:---:|
 |[solution 1](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=05e37f9f-c50c-4ba0-8065-92cd74eb9052)|0.413|0.745|True|
