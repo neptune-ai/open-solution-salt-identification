@@ -1,7 +1,7 @@
 # TGS Salt Identification Challenge
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://github.com/minerva-ml/open-solution-home-credit/blob/master/LICENSE)
 
-This is an open solution to the [TGS Salt Identification Challenge](https://www.kaggle.com/c/tgs-salt-identification-challenge). Check [Kaggle forum](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/61949) and participate in the discussions!
+This is an open solution to the [TGS Salt Identification Challenge](https://www.kaggle.com/c/tgs-salt-identification-challenge).
 
 ## Our goals
 We are building entirely open solution to this competition. Specifically:
@@ -14,31 +14,35 @@ We are building entirely open solution to this competition. Specifically:
 |:---:|
 |[![training monitor](https://gist.githubusercontent.com/jakubczakon/cac72983726a970690ba7c33708e100b/raw/b45dd02b6643a3805db42ab51a62293a2940c0be/neptune_salt.png)](https://app.neptune.ml/-/dashboard/experiment/3dfce6cf-3031-4e9a-b95c-1ac8b5bb0026)|
 
-## Our solutions so far
-
-| Link to Experiments | CV | LB | Open |
-|:---:|:---:|:---:|:---:|
-|[solution 1](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=05e37f9f-c50c-4ba0-8065-92cd74eb9052)|0.413|0.745|True|
-|[solution 2](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=57f36441-f0aa-4071-a05b-eb45fa0648e5)|0.794|0.798|True|
-|[solution 3](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=c92051e6-97b6-40ba-b293-52fba301f9d7)|0.807|0.801|True|
-|[solution 4](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=94881f72-46ad-4c84-829d-39e87c92937f)|0.802|0.809|True|
-|[solution 5](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=60133d85-ab31-4395-b0e9-37deb25ecc94)|0.804|0.813|True|
-|[solution 6](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=ab96e5df-3f1b-4516-9df0-4492e0199c71)|0.821|0.827||
-|[solution 7](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=0810785e-ebab-4173-8e9e-8fe560095b77)|0.829|0.837||
-|[solution 8](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=bda70048-f037-4c0d-a096-15ea93fd8924)|XXX|XXX||
-
 ## Disclaimer
 In this open source solution you will find references to the [neptune.ml](https://neptune.ml). It is free platform for community Users, which we use daily to keep track of our experiments. Please note that using neptune.ml is not necessary to proceed with this solution. You may run it as plain Python script :snake:.
 
 # How to start?
+## Learn about our solutions
+1. Check [Kaggle forum](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/61949) and participate in the discussions.
+1. See solutions below:
+
+| link to code | CV | LB |
+|:---:|:---:|:---:|
+|solution 1|0.413|0.745|
+|solution 2|0.794|0.798|
+|solution 3|0.807|0.801|
+|solution 4|0.802|0.809|
+|solution 5|0.804|0.813|
+|solution 6|0.821|0.824|
+
+
+## Start experimenting with ready-to-use code
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
 
-## Installation
+### Installation *(fast track)*
 1. Clone repository and install requirements (*use Python3.5*) `pip3 install -r requirements.txt`
 1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_
-1. Run experiment based on U-Net. See instruction below:
+1. Run experiment based on U-Net:
 
-## Start experiment in the cloud
+
+
+#### Cloud
 ```bash
 neptune account login
 ```
@@ -59,8 +63,7 @@ Change the execution function in the `main.py`:
 if __name__ == '__main__':
     prepare_metadata()
 ```
-
-Then run the following command:
+It only needs to be **done once**
 
 ```bash
 neptune send --worker m-p100 \
@@ -70,31 +73,25 @@ main.py
 
 ```
 
-Remember metadata preparation only needs to be **done once**
-
-
-It will be saved in the
+They will be saved in the
 
 ```yaml
   metadata_filepath: /output/metadata.csv
 ```
 
-From now on we will load the metadata from **PREVIOUS EXPERIMENT**. 
-Do that by changing the `neptune.yaml`
+From now on we will load the metadata by changing the `neptune.yaml`
 
 ```yaml
   metadata_filepath: /input/metadata.csv
 ```
 
-and adding the path to the experiment that generated metadata say SAL-1 to every command `--input /SAL-1/output/metadata.csv`
+and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
 
 Let's train the model by changing the command in the `main.py` to:
 
 ```python
 if __name__ == '__main__':
-    train()
-    evaluate()
-    predict()
+    train_evaluate_predict_cv()
 ```
 
 and running
@@ -103,7 +100,7 @@ and running
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config neptune.yaml \
---input /SAL-1/output/metadata.csv \
+--input /input/metadata.csv \
 main.py 
 
 ```
@@ -113,9 +110,7 @@ You could have run it easily with both of those functions executed in the `main.
 ```python
 if __name__ == '__main__':
     prepare_metadata()
-    train()
-    evaluate()
-    predict()
+    train_evaluate_predict_cv()
 ```
 but recalculating metadata every time you run your pipeline doesn't seem like a good idea :).
 
@@ -140,8 +135,7 @@ and
 
 ```python
 if __name__ == '__main__':
-    evaluate()
-    predict()
+    evaluate_predict_cv()
 ```
 
 and running the following command:
@@ -151,18 +145,16 @@ and running the following command:
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config neptune.yaml \
---input /SAL-1/output/metadata.csv \
+--input /input/metadata.csv \
 --input /SAL-2 \
 main.py
 ```
 
-## Start experiment on your local machine
+#### Local
 Login to neptune if you want to use it
 ```bash
 neptune account login
 ```
-
-Change data filepaths to your local ones in `neptune.yaml` and `main.py`.
 
 Prepare metadata
 Change `main.py':
@@ -181,9 +173,7 @@ Training and inference
 Change `main.py':
 ```python
 if __name__ == '__main__':
-    train()
-    evaluate()
-    predict()
+    train_evaluate_predict_cv()
 ```
 
 ```bash
@@ -196,10 +186,24 @@ You can always run it with pure python :snake:
 python main.py 
 ```
 
+## References
+1.Lovash Loss
+
+```
+@InProceedings{Berman_2018_CVPR,
+author = {Berman, Maxim and Rannen Triki, Amal and Blaschko, Matthew B.},
+title = {The Lovász-Softmax Loss: A Tractable Surrogate for the Optimization of the Intersection-Over-Union Measure in Neural Networks},
+booktitle = {The IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+month = {June},
+year = {2018}
+}
+```
+
+
 ## Get involved
 You are welcome to contribute your code and ideas to this open solution. To get started:
 1. Check [competition project](https://github.com/neptune-ml/open-solution-salt-detection/projects/1) on GitHub to see what we are working on right now.
-1. Express your interest in particular task by writing comment in this task, or by creating new one with your fresh idea.
+1. Express your interest in paticular task by writing comment in this task, or by creating new one with your fresh idea.
 1. We will get back to you quickly in order to start working together.
 1. Check [CONTRIBUTING](CONTRIBUTING.md) for some more information.
 

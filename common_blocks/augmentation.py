@@ -3,7 +3,7 @@ import numpy as np
 import imgaug as ia
 from imgaug import augmenters as iaa
 
-from .utils import get_crop_pad_sequence, reseed
+from common_blocks.utils import get_crop_pad_sequence, reseed
 
 
 def _perspective_transform_augment_images(self, images, random_state, parents, hooks):
@@ -36,7 +36,9 @@ affine_seq = iaa.Sequential([
     iaa.SomeOf((1, 2),
                [iaa.Fliplr(0.5),
                 iaa.Affine(rotate=(-10, 10),
-                           translate_percent={"x": (-0.25, 0.25)}, mode='symmetric'),
+                           translate_percent={"x": (-0.05, 0.05)},
+                           mode='edge'),
+                # iaa.CropAndPad(percent=((0.0, 0.0), (0.05, 0.0), (0.0, 0.0), (0.05, 0.0)))
                 ]),
     # Deformations
     iaa.Sometimes(0.3, iaa.PiecewiseAffine(scale=(0.04, 0.08))),
@@ -69,22 +71,36 @@ tta_intensity_seq = iaa.Sequential([
 ], random_order=False)
 
 
-def resize_pad_seq(resize_target_size, pad_method, pad_size):
+def resize_seq(resize_target_size):
     seq = iaa.Sequential([
-        iaa.Scale({'height': resize_target_size, 'width': resize_target_size}),
-        PadFixed(pad=(pad_size, pad_size), pad_method=pad_method),
         affine_seq,
+        iaa.Scale({'height': resize_target_size, 'width': resize_target_size}),
     ], random_order=False)
     return seq
 
 
+def resize_pad_seq(resize_target_size, pad_method, pad_size):
+    seq = iaa.Sequential([
+        affine_seq,
+        iaa.Scale({'height': resize_target_size, 'width': resize_target_size}),
+        PadFixed(pad=(pad_size, pad_size), pad_method=pad_method),
+    ], random_order=False)
+    return seq
+
+
+def resize_to_fit_net(resize_target_size):
+    seq = iaa.Sequential(iaa.Scale({'height': resize_target_size, 'width': resize_target_size}))
+    return seq
+
+
 def pad_to_fit_net(divisor, pad_mode, rest_of_augs=iaa.Noop()):
-    return iaa.Sequential(InferencePad(divisor, pad_mode), rest_of_augs)
+    seq = iaa.Sequential(InferencePad(divisor, pad_mode), rest_of_augs)
+    return seq
 
 
 class PadFixed(iaa.Augmenter):
     PAD_FUNCTION = {'reflect': cv2.BORDER_REFLECT_101,
-                    'replicate': cv2.BORDER_REPLICATE,
+                    'edge': cv2.BORDER_REPLICATE,
                     }
 
     def __init__(self, pad=None, pad_method=None, name=None, deterministic=False, random_state=None):

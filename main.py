@@ -148,7 +148,12 @@ CONFIG = AttrDict({
                                              },
 
                            'augmentation_params': {'image_augment_train': aug.intensity_seq,
-                                                   'image_augment_with_target_train': aug.affine_seq
+                                                   'image_augment_with_target_train': aug.resize_seq(
+                                                       resize_target_size=PARAMS.resize_target_size),
+                                                   'image_augment_inference': aug.resize_to_fit_net(
+                                                       resize_target_size=PARAMS.resize_target_size),
+                                                   'image_augment_with_target_inference': aug.resize_to_fit_net(
+                                                       resize_target_size=PARAMS.resize_target_size)
                                                    },
                            },
                 'resize_tta': {'dataset_params': {'h': PARAMS.image_h,
@@ -170,8 +175,13 @@ CONFIG = AttrDict({
                                                                },
                                                  },
 
-                               'augmentation_params': {'tta_transform': aug.test_time_augmentation_transform
-                                                       },
+                               'augmentation_params': {
+                                   'image_augment_inference': aug.resize_to_fit_net(
+                                       resize_target_size=PARAMS.resize_target_size),
+                                   'image_augment_with_target_inference': aug.resize_to_fit_net(
+                                       resize_target_size=PARAMS.resize_target_size),
+                                   'tta_transform': aug.test_time_augmentation_transform
+                               },
                                },
                 },
     'model': {
