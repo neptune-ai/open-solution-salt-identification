@@ -14,6 +14,9 @@ We are building entirely open solution to this competition. Specifically:
 |:---:|
 |[![training monitor](https://gist.githubusercontent.com/jakubczakon/cac72983726a970690ba7c33708e100b/raw/b45dd02b6643a3805db42ab51a62293a2940c0be/neptune_salt.png)](https://app.neptune.ml/-/dashboard/experiment/3dfce6cf-3031-4e9a-b95c-1ac8b5bb0026)|
 
+## More resources
+Check collection of [public projects](https://app.neptune.ml/-/explore), where you can find multiple Kaggle competitions with code, experiments and outputs.
+
 ## Disclaimer
 In this open source solution you will find references to the [neptune.ml](https://neptune.ml). It is free platform for community Users, which we use daily to keep track of our experiments. Please note that using neptune.ml is not necessary to proceed with this solution. You may run it as plain Python script :snake:.
 
