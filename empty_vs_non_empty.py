@@ -56,7 +56,7 @@ SEED = 1234
 ID_COLUMN = 'id'
 DEPTH_COLUMN = 'z'
 X_COLUMN = 'file_path_image'
-Y_COLUMN = 'is_empty'
+Y_COLUMN = 'is_not_empty'
 
 if USE_DEPTH:
     x_columns = [X_COLUMN, DEPTH_COLUMN]

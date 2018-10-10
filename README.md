@@ -33,10 +33,7 @@ In this open source solution you will find references to the [neptune.ml](https:
 |[solution 7](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=0810785e-ebab-4173-8e9e-8fe560095b77)|0.829|0.837||
 |[solution 8](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=bda70048-f037-4c0d-a096-15ea93fd8924)|0.830|0.845||
 |[solution 9](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=c21fc5a2-437a-412f-86e1-078fe31e025d)|0.849|0.847||
-<<<<<<< HEAD
 
-=======
->>>>>>> 5d967124310e2e1aa5c8d8addc66a87224047d77
 
 ## Start experimenting with ready-to-use code
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
@@ -47,13 +44,12 @@ You can jump start your participation in the competition by using our starter pa
 1. Run experiment based on U-Net:
 
 
-
 #### Cloud
 ```bash
 neptune account login
 ```
 
-Create project say Salt-Detection (SAL)
+Create project say Ships (SHIP)
 
 Go to `neptune.yaml` and change:
 
@@ -63,19 +59,13 @@ project: USERNAME/PROJECT_NAME
 to your username and project name
 
 Prepare metadata. 
-Change the execution function in the `main.py`:
-
-```python
-if __name__ == '__main__':
-    prepare_metadata()
-```
 It only needs to be **done once**
 
 ```bash
-neptune send --worker m-p100 \
---environment pytorch-0.3.1-gpu-py3 \
+neptune send --worker xs \
+--environment base-cpu-py3 \
 --config neptune.yaml \
-main.py
+prepare_metadata.py
 
 ```
 
@@ -93,6 +83,7 @@ From now on we will load the metadata by changing the `neptune.yaml`
 
 and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
 
+<<<<<<< HEAD
 Let's train the model by changing the command in the `main.py` to:
 
 ```python
@@ -101,24 +92,18 @@ if __name__ == '__main__':
 ```
 
 and running
+=======
+Let's train the model by running the `main.py`:
+>>>>>>> b769b42268dbeee10d4bd64176bbfdde133e971d
 
 ```bash
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config neptune.yaml \
---input /input/metadata.csv \
+--input /SAL-1/output/metadata.csv \
 main.py 
 
 ```
-
-You could have run it easily with both of those functions executed in the `main.py` :
-
-```python
-if __name__ == '__main__':
-    prepare_metadata()
-    train_evaluate_predict_cv()
-```
-but recalculating metadata every time you run your pipeline doesn't seem like a good idea :).
 
 The model will be saved in the:
 
@@ -134,14 +119,7 @@ For example when running evaluation we need to use the previous model folder in 
 changing `main.py` 
 
 ```python
-  CLONE_EXPERIMENT_DIR_FROM = '/SAL-2/output/experiment'
-```
-
-and
-
-```python
-if __name__ == '__main__':
-    evaluate_predict_cv()
+  CLONE_EXPERIMENT_DIR_FROM = '/SHIP-2/output/experiment'
 ```
 
 and running the following command:
@@ -151,7 +129,7 @@ and running the following command:
 neptune send --worker m-p100 \
 --environment pytorch-0.3.1-gpu-py3 \
 --config neptune.yaml \
---input /input/metadata.csv \
+--input /SAL-1/output/metadata.csv \
 --input /SAL-2 \
 main.py
 ```
@@ -162,25 +140,13 @@ Login to neptune if you want to use it
 neptune account login
 ```
 
-Prepare metadata
-Change `main.py':
-```python
-if __name__ == '__main__':
-    prepare_metadata()
-```
-
-run
+Prepare metadata by running:
 
 ```bash
-neptune run --config neptune.yaml main.py prepare_metadata
+neptune run --config neptune.yaml prepare_metadata.py
 ```
 
-Training and inference
-Change `main.py':
-```python
-if __name__ == '__main__':
-    train_evaluate_predict_cv()
-```
+Training and inference by running `main.py`:
 
 ```bash
 neptune run --config neptune.yaml main.py
