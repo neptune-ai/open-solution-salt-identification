@@ -447,32 +447,6 @@ def network_tta(config, suffix=''):
 #  |_______/__/ \__\ |_______| \______| \______/      |__|     |__|  \______/  |__| \__|
 #
 
-def prepare_stacking_data():
-    LOGGER.info('preparing stacking metadata')
-    raw_dir = os.path.join(PARAMS.stacking_data_dir, 'raw')
-    grouped_by_id_dir = os.path.join(PARAMS.stacking_data_dir, 'predictions_by_id')
-    joined_dir = os.path.join(PARAMS.stacking_data_dir, 'joined_predictions')
-
-    for dirpath in [PARAMS.stacking_data_dir, grouped_by_id_dir, joined_dir]:
-        os.makedirs(dirpath, exist_ok=True)
-
-    LOGGER.info('grouping predictions by id')
-    utils.group_predictions_by_id(raw_dir=raw_dir, grouped_by_id_dir=grouped_by_id_dir)
-    LOGGER.info('joining predictions')
-    utils.join_id_predictions(grouped_by_id_dir=grouped_by_id_dir, joined_predictions_dir=joined_dir)
-    meta = utils.generate_metadata_stacking(metadata_filepath=PARAMS.metadata_filepath,
-                                            joined_predictions_dir=joined_dir)
-    meta.to_csv(PARAMS.metadata_filepath, index=None)
-
-
-def prepare_metadata():
-    LOGGER.info('creating metadata')
-    meta = utils.generate_metadata(train_images_dir=PARAMS.train_images_dir,
-                                   test_images_dir=PARAMS.test_images_dir,
-                                   depths_filepath=PARAMS.depths_filepath
-                                   )
-    meta.to_csv(PARAMS.metadata_filepath, index=None)
-
 
 def train():
     meta = pd.read_csv(PARAMS.metadata_filepath)
@@ -904,6 +878,4 @@ def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_p
 #
 
 if __name__ == '__main__':
-    # prepare_metadata()
-    # prepare_stacking_data()
     train_evaluate_predict_cv()

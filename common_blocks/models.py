@@ -1,48 +1,66 @@
-from functools import partial
-
 import numpy as np
 import torch
-import torch.optim as optim
-from torch.autograd import Variable
 import torch.nn as nn
-from torch.nn import functional as F
+import torch.optim as optim
+from functools import partial
 from toolkit.pytorch_transformers.models import Model
+from torch.autograd import Variable
+from torch.nn import functional as F
 
-from .utils import sigmoid, softmax, get_list_of_image_predictions, pytorch_where
+from .architectures import unet, large_kernel_matters, misc, models_with_depth, pspnet
 from . import callbacks as cbk
-from .architectures import UNetResNet, LargeKernelMatters, UNetResNetWithDepth, StackingFCN, StackingFCNWithDepth, \
-    EmptinessClassifier
 from .lovasz_losses import lovasz_hinge
+from .utils import sigmoid, softmax, get_list_of_image_predictions, pytorch_where
 
-ARCHITECTURES = {'UNetResNet': {'model': UNetResNet,
+ARCHITECTURES = {'UNetResNet': {'model': unet.UNetResNet,
                                 'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
-                                                 'dropout_2d': 0.0, 'pretrained': True,
+                                                 'dropout_2d': 0.0, 'pretrained': True, 'pool0': False
                                                  },
                                 'init_weights': False},
-
-                 'UNetResNetWithDepth': {'model': UNetResNetWithDepth,
-                                         'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
-                                                          'dropout_2d': 0.0, 'pretrained': True,
-                                                          },
-                                         'init_weights': False},
-                 'LargeKernelMatters': {'model': LargeKernelMatters,
+                 'UNetSeResNet': {'model': unet.UNetSeResNet,
+                                  'model_config': {'encoder_depth': 50, 'use_hypercolumn': True,
+                                                   'dropout_2d': 0.0, 'pretrained': 'imagenet', 'pool0': False
+                                                   },
+                                  'init_weights': False},
+                 'UNetSeResNetXt': {'model': unet.UNetSeResNetXt,
+                                    'model_config': {'encoder_depth': 50, 'use_hypercolumn': True,
+                                                     'dropout_2d': 0.0, 'pretrained': 'imagenet', 'pool0': False
+                                                     },
+                                    'init_weights': False},
+                 'UNetDenseNet': {'model': unet.UNetDenseNet,
+                                  'model_config': {'encoder_depth': 121, 'use_hypercolumn': True,
+                                                   'dropout_2d': 0.0, 'pretrained': 'imagenet', 'pool0': False
+                                                   },
+                                  'init_weights': False},
+                 'LargeKernelMatters': {'model': large_kernel_matters.LargeKernelMatters,
                                         'model_config': {'encoder_depth': 34, 'pretrained': True,
                                                          'kernel_size': 9, 'internal_channels': 21,
-                                                         'dropout_2d': 0.0, 'use_relu': True
+                                                         'dropout_2d': 0.0, 'use_relu': True, 'pool0': False
                                                          },
                                         'init_weights': False},
-                 'StackingFCN': {'model': StackingFCN,
-                                 'model_config': {'input_model_nr': 18, 'filter_nr': 32, 'dropout_2d': 0.0
+                 'PSPNet': {'model': pspnet.PSPNet,
+                            'model_config': {'encoder_depth': 34, 'pretrained': True,
+                                             'use_hypercolumn': True, 'pool0': False
+                                             },
+                            'init_weights': False},
+                 'UNetResNetWithDepth': {'model': models_with_depth.UNetResNetWithDepth,
+                                         'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
+                                                          'dropout_2d': 0.0, 'pretrained': True, 'pool0': False
+                                                          },
+                                         'init_weights': False},
+                 'StackingFCN': {'model': misc.StackingFCN,
+                                 'model_config': {'input_model_nr': 51, 'filter_nr': 32, 'dropout_2d': 0.0
                                                   },
                                  'init_weights': True},
-                 'StackingFCNWithDepth': {'model': StackingFCNWithDepth,
-                                          'model_config': {'input_model_nr': 18, 'filter_nr': 32, 'dropout_2d': 0.0
+                 'StackingFCNWithDepth': {'model': misc.StackingFCNWithDepth,
+                                          'model_config': {'input_model_nr': 51, 'filter_nr': 32, 'dropout_2d': 0.0
                                                            },
                                           'init_weights': True},
-                 'EmptinessClassifier': {'model': EmptinessClassifier,
+                 'EmptinessClassifier': {'model': misc.EmptinessClassifier,
                                          'model_config': {'encoder_depth': 18, 'pretrained': True,
                                                           },
                                          'init_weights': False},
+
                  }
 
 

@@ -21,3 +21,5 @@ scipy==1.0.0
 torch==0.3.1
 torchvision==0.2.0
 tqdm==4.23.0
+pretrainedmodels==0.7.0
+cffi==1.11.5

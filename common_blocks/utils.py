@@ -136,7 +136,7 @@ def generate_metadata(train_images_dir, test_images_dir, depths_filepath):
         image_id = filename.split('.')[0]
         depth = depths[depths['id'] == image_id]['z'].values[0]
         size = (np.array(Image.open(mask_filepath)) > 0).astype(np.uint8).sum()
-        is_empty = int(size == 0)
+        is_not_empty = int(size != 0)
 
         metadata.setdefault('file_path_image', []).append(image_filepath)
         metadata.setdefault('file_path_mask', []).append(mask_filepath)
@@ -144,14 +144,14 @@ def generate_metadata(train_images_dir, test_images_dir, depths_filepath):
         metadata.setdefault('id', []).append(image_id)
         metadata.setdefault('z', []).append(depth)
         metadata.setdefault('size', []).append(size)
-        metadata.setdefault('is_empty', []).append(is_empty)
+        metadata.setdefault('is_not_empty', []).append(is_not_empty)
 
     for filename in tqdm(os.listdir(os.path.join(test_images_dir, 'images'))):
         image_filepath = os.path.join(test_images_dir, 'images', filename)
         image_id = filename.split('.')[0]
         depth = depths[depths['id'] == image_id]['z'].values[0]
         size = np.nan
-        is_empty = np.nan
+        is_not_empty = np.nan
 
         metadata.setdefault('file_path_image', []).append(image_filepath)
         metadata.setdefault('file_path_mask', []).append(None)
@@ -159,7 +159,7 @@ def generate_metadata(train_images_dir, test_images_dir, depths_filepath):
         metadata.setdefault('id', []).append(image_id)
         metadata.setdefault('z', []).append(depth)
         metadata.setdefault('size', []).append(size)
-        metadata.setdefault('is_empty', []).append(is_empty)
+        metadata.setdefault('is_not_empty', []).append(is_not_empty)
 
     return pd.DataFrame(metadata)
 
@@ -383,13 +383,13 @@ class KFoldBySortedValue(BaseCrossValidator):
         return self.n_splits
 
 
-def plot_list(images=[], labels=[]):
+def plot_list(images=[], labels=[], vmin=0.0, vmax=1.0):
     n_img = len(images)
     n_lab = len(labels)
     n = n_lab + n_img
     fig, axs = plt.subplots(1, n, figsize=(16, 12))
     for i, image in enumerate(images):
-        axs[i].imshow(image)
+        axs[i].imshow(image, vmin=vmin, vmax=vmax)
         axs[i].set_xticks([])
         axs[i].set_yticks([])
     for j, label in enumerate(labels):
