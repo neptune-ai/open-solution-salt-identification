@@ -64,5 +64,5 @@ def prepare_metadata():
 #
 
 if __name__ == '__main__':
-    prepare_metadata()
+    # prepare_metadata()
     prepare_stacking_data()
