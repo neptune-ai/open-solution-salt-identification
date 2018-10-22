@@ -7,9 +7,10 @@ import torch
 from PIL import Image
 import neptune
 from torch.autograd import Variable
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import ExponentialLR, ReduceLROnPlateau
 from tempfile import TemporaryDirectory
 
+from sklearn.metrics import roc_auc_score
 from steppy.base import Step, IdentityOperation
 from steppy.adapter import Adapter, E
 from toolkit.pytorch_transformers.utils import Averager, persist_torch_model
@@ -200,6 +201,85 @@ class ExponentialLRScheduler(Callback):
         self.batch_id += 1
 
 
+class ReduceLROnPlateauScheduler(Callback):
+    def __init__(self, metric_name, minimize, reduce_factor, reduce_patience, min_lr):
+        super().__init__()
+        self.ctx = neptune.Context()
+        self.ctx.channel_reset('Learning Rate')
+        self.metric_name = metric_name
+        self.minimize = minimize
+        self.reduce_factor = reduce_factor
+        self.reduce_patience = reduce_patience
+        self.min_lr = min_lr
+
+    def set_params(self, transformer, validation_datagen, *args, **kwargs):
+        super().set_params(transformer, validation_datagen)
+        self.validation_datagen = validation_datagen
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+        self.lr_scheduler = ReduceLROnPlateau(optimizer=self.optimizer,
+                                              mode='min' if self.minimize else 'max',
+                                              factor=self.reduce_factor,
+                                              patience=self.reduce_patience,
+                                              min_lr=self.min_lr)
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+
+    def on_epoch_end(self, *args, **kwargs):
+        self.model.eval()
+        val_loss = self.get_validation_loss()
+        metric = val_loss[self.metric_name]
+        metric = metric.data.cpu().numpy()[0]
+        self.model.train()
+
+        self.lr_scheduler.step(metrics=metric, epoch=self.epoch_id)
+        logger.info('epoch {0} current lr: {1}'.format(self.epoch_id + 1,
+                                                       self.optimizer.state_dict()['param_groups'][0]['lr']))
+        self.ctx.channel_send('Learning Rate', x=self.epoch_id,
+                              y=self.optimizer.state_dict()['param_groups'][0]['lr'])
+
+        self.epoch_id += 1
+
+
+class InitialLearningRateFinder(Callback):
+    def __init__(self, min_lr=1e-8, multipy_factor=1.05, add_factor=0.0):
+        super().__init__()
+        self.ctx = neptune.Context()
+        self.ctx.channel_reset('Learning Rate Finder')
+        self.min_lr = min_lr
+        self.multipy_factor = multipy_factor
+        self.add_factor = add_factor
+
+    def set_params(self, transformer, validation_datagen, *args, **kwargs):
+        super().set_params(transformer, validation_datagen)
+        self.validation_datagen = validation_datagen
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+
+    def on_train_begin(self, *args, **kwargs):
+        self.epoch_id = 0
+        self.batch_id = 0
+
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.min_lr
+
+    def on_batch_end(self, metrics, *args, **kwargs):
+        for name, loss in metrics.items():
+            loss = loss.data.cpu().numpy()[0]
+        current_lr = self.optimizer.state_dict()['param_groups'][0]['lr']
+        logger.info('Learning Rate {} Loss {})'.format(current_lr, loss))
+        self.ctx.channel_send('Learning Rate Finder', x=self.batch_id, y=current_lr)
+        self.ctx.channel_send('Loss', x=self.batch_id, y=loss)
+
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = current_lr * self.multipy_factor + self.add_factor
+        self.batch_id += 1
+
+
 class ExperimentTiming(Callback):
     def __init__(self, epoch_every=None, batch_every=None):
         super().__init__()
@@ -250,13 +330,15 @@ class ExperimentTiming(Callback):
 
 
 class NeptuneMonitor(Callback):
-    def __init__(self, image_nr, image_resize, model_name):
+    def __init__(self, image_nr, image_resize, image_every, model_name, use_depth):
         super().__init__()
         self.model_name = model_name
         self.ctx = neptune.Context()
         self.epoch_loss_averager = Averager()
-        self.image_nr = image_nr
         self.image_resize = image_resize
+        self.image_every = image_every
+        self.image_nr = image_nr
+        self.use_depth = use_depth
 
     def on_train_begin(self, *args, **kwargs):
         self.epoch_loss_averagers = {}
@@ -279,6 +361,8 @@ class NeptuneMonitor(Callback):
 
     def on_epoch_end(self, *args, **kwargs):
         self._send_numeric_channels()
+        if self.image_every is not None and self.epoch_id % self.image_every == 0:
+            self._send_image_channels()
         self.epoch_id += 1
 
     def _send_numeric_channels(self, *args, **kwargs):
@@ -294,9 +378,89 @@ class NeptuneMonitor(Callback):
             loss = loss.data.cpu().numpy()[0]
             self.ctx.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
 
+    def _send_image_channels(self):
+        self.model.eval()
+        image_triplets = self._get_image_triplets()
+        if self.image_nr is not None:
+            image_triplets = image_triplets[:self.image_nr]
+        self.model.train()
+
+        for i, image_triplet in enumerate(image_triplets):
+            h, w = image_triplet.shape[1:]
+            image_glued = np.zeros((h, 3 * w + 20))
+
+            image_glued[:, :w] = image_triplet[0, :, :]
+            image_glued[:, (w + 10):(2 * w + 10)] = image_triplet[1, :, :]
+            image_glued[:, (2 * w + 20):] = image_triplet[2, :, :]
+
+            pill_image = Image.fromarray((image_glued * 255.).astype(np.uint8))
+            h_, w_ = image_glued.shape
+            pill_image = pill_image.resize((int(self.image_resize * w_), int(self.image_resize * h_)),
+                                           Image.ANTIALIAS)
+
+            self.ctx.channel_send('{} predictions'.format(self.model_name), neptune.Image(
+                name='epoch{}_batch{}_idx{}'.format(self.epoch_id, self.batch_id, i),
+                description="image, prediction, ground truth",
+                data=pill_image))
+
+    def _get_image_triplets(self):
+        image_triplets = []
+        batch_gen, steps = self.validation_datagen
+        for batch_id, data in enumerate(batch_gen):
+            predictions, targets_tensors = self._get_predictions_targets(data)
+
+            raw_images = data[0].numpy()
+            ground_truth_masks = targets_tensors[0].cpu().numpy()
+            h, w = raw_images.shape[-2:]
+
+            for image, prediction, target in zip(raw_images, predictions, ground_truth_masks):
+                image_triplet = np.zeros((3, h, w))
+                if image.shape[0] > 3:
+                    image_ = image[0, :, :]
+                else:
+                    image_ = denormalize(image)[0, :, :]
+                image_triplet[0, :, :] = image_
+                image_triplet[1, :, :] = prediction[1, :, :]
+                image_triplet[2, :, :] = target[1:, :, :]
+                image_triplets.append(image_triplet)
+            break
+        return image_triplets
+
+    def _get_predictions_targets(self, data):
+        if self.use_depth:
+            X = data[0]
+            D = data[1]
+            targets_tensors = data[2:]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                D = Variable(D, volatile=True).cuda()
+            else:
+                X = Variable(X, volatile=True)
+                D = Variable(D, volatile=True)
+
+            predictions = sigmoid(self.model(X, D).data.cpu().numpy())
+        else:
+            X = data[0]
+            targets_tensors = data[1:]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+            else:
+                X = Variable(X, volatile=True)
+
+            predictions = sigmoid(self.model(X).data.cpu().numpy())
+        return predictions, targets_tensors
+
+
+def denormalize(x):
+    mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
+    std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
+    return x * std + mean
+
 
 class ValidationMonitor(Callback):
-    def __init__(self, data_dir, loader_mode, epoch_every=None, batch_every=None):
+    def __init__(self, data_dir, loader_mode, epoch_every=None, batch_every=None, use_depth=False):
         super().__init__()
         if epoch_every == 0:
             self.epoch_every = False
@@ -307,6 +471,7 @@ class ValidationMonitor(Callback):
         else:
             self.batch_every = batch_every
 
+        self.use_depth = use_depth
         self.data_dir = data_dir
         self.validation_pipeline = postprocessing_pipeline_simplified
         self.loader_mode = loader_mode
@@ -340,11 +505,24 @@ class ValidationMonitor(Callback):
 
     def _get_validation_loss(self):
         output, epoch_loss = self._transform()
-        y_pred = self._generate_prediction(output)
+        logger.info('Selecting best threshold')
+
+        iout_best, threshold_best = 0.0, 0.5
+        for threshold in np.linspace(0.5, 0.3, 21):
+            y_pred = self._generate_prediction(output, threshold)
+            iout_score = intersection_over_union_thresholds(self.y_true, y_pred)
+            logger.info('threshold {} IOUT {}'.format(threshold, iout_score))
+            if iout_score > iout_best:
+                iout_best = iout_score
+                threshold_best = threshold
+            else:
+                break
+        logger.info('Selected best threshold {} IOUT {}'.format(threshold_best, iout_best))
 
         logger.info('Calculating IOU and IOUT Scores')
-        iou_score = intersection_over_union(self.y_true, y_pred)
+        y_pred = self._generate_prediction(output, threshold_best)
         iout_score = intersection_over_union_thresholds(self.y_true, y_pred)
+        iou_score = intersection_over_union(self.y_true, y_pred)
         logger.info('IOU score on validation is {}'.format(iou_score))
         logger.info('IOUT score on validation is {}'.format(iout_score))
 
@@ -361,21 +539,8 @@ class ValidationMonitor(Callback):
         partial_batch_losses = []
         outputs = {}
         for batch_id, data in enumerate(batch_gen):
-            X = data[0]
-            targets_tensors = data[1:]
+            targets_var, outputs_batch = self._get_targets_and_output(data)
 
-            if torch.cuda.is_available():
-                X = Variable(X, volatile=True).cuda()
-                targets_var = []
-                for target_tensor in targets_tensors:
-                    targets_var.append(Variable(target_tensor, volatile=True).cuda())
-            else:
-                X = Variable(X, volatile=True)
-                targets_var = []
-                for target_tensor in targets_tensors:
-                    targets_var.append(Variable(target_tensor, volatile=True))
-
-            outputs_batch = self.model(X)
             if len(self.output_names) == 1:
                 for (name, loss_function_one, weight), target in zip(self.loss_function, targets_var):
                     loss_sum = loss_function_one(outputs_batch, target) * weight
@@ -407,16 +572,193 @@ class ValidationMonitor(Callback):
 
         return outputs, average_losses
 
-    def _generate_prediction(self, outputs):
+    def _get_targets_and_output(self, data):
+        if self.use_depth:
+            X = data[0]
+            D = data[1]
+            targets_tensors = data[2:]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                D = Variable(D, volatile=True).cuda()
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True).cuda())
+            else:
+                X = Variable(X, volatile=True)
+                D = Variable(D, volatile=True)
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True))
+            outputs_batch = self.model(X, D)
+        else:
+            X = data[0]
+            targets_tensors = data[1:]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True).cuda())
+            else:
+                X = Variable(X, volatile=True)
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True))
+            outputs_batch = self.model(X)
+
+        return targets_var, outputs_batch
+
+    def _generate_prediction(self, outputs, threshold):
         data = {'callback_input': {'meta': self.meta_valid,
                                    'meta_valid': None,
                                    },
-                'unet_output': {**outputs}
+                'network_output': {**outputs}
                 }
         with TemporaryDirectory() as cache_dirpath:
-            pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode)
+            pipeline = self.validation_pipeline(cache_dirpath, self.loader_mode, threshold)
             output = pipeline.transform(data)
         y_pred = output['y_pred']
+        return y_pred
+
+
+class ValidationMonitorEmptiness(Callback):
+    def __init__(self, data_dir, loader_mode, epoch_every=None, batch_every=None, use_depth=False):
+        super().__init__()
+        if epoch_every == 0:
+            self.epoch_every = False
+        else:
+            self.epoch_every = epoch_every
+        if batch_every == 0:
+            self.batch_every = False
+        else:
+            self.batch_every = batch_every
+
+        self.use_depth = use_depth
+        self.data_dir = data_dir
+        self.validation_pipeline = None
+        self.loader_mode = loader_mode
+        self.meta_valid = None
+        self.y_true = None
+        self.activation_func = None
+
+    def set_params(self, transformer, validation_datagen, meta_valid=None, *args, **kwargs):
+        self.model = transformer.model
+        self.optimizer = transformer.optimizer
+        self.loss_function = transformer.loss_function
+        self.output_names = transformer.output_names
+        self.validation_datagen = validation_datagen
+        self.meta_valid = meta_valid
+        self.y_true = self.meta_valid[Y_COLUMN].values
+        self.activation_func = transformer.activation_func
+        self.transformer = transformer
+
+    def get_validation_loss(self):
+        return self._get_validation_loss()
+
+    def on_epoch_end(self, *args, **kwargs):
+        if self.epoch_every and ((self.epoch_id % self.epoch_every) == 0):
+            self.model.eval()
+            val_loss = self.get_validation_loss()
+            self.model.train()
+            for name, loss in val_loss.items():
+                loss = loss.data.cpu().numpy()[0]
+                logger.info('epoch {0} validation {1}:     {2:.5f}'.format(self.epoch_id, name, loss))
+        self.epoch_id += 1
+
+    def _get_validation_loss(self):
+        output, epoch_loss = self._transform()
+        y_pred = self._generate_prediction(output)
+
+        auc_score = roc_auc_score(self.y_true, y_pred)
+        logger.info('AUC score on validation is {}'.format(auc_score))
+
+        if not self.transformer.validation_loss:
+            self.transformer.validation_loss = {}
+        self.transformer.validation_loss.setdefault(self.epoch_id, {'sum': epoch_loss,
+                                                                    'auc': Variable(torch.Tensor([auc_score])),
+                                                                    })
+        return self.transformer.validation_loss[self.epoch_id]
+
+    def _transform(self):
+        self.model.eval()
+        batch_gen, steps = self.validation_datagen
+        partial_batch_losses = []
+        outputs = {}
+        for batch_id, data in enumerate(batch_gen):
+            targets_var, outputs_batch = self._get_targets_and_output(data)
+
+            if len(self.output_names) == 1:
+                for (name, loss_function_one, weight), target in zip(self.loss_function, targets_var):
+                    loss_sum = loss_function_one(outputs_batch, target) * weight
+                outputs.setdefault(self.output_names[0], []).append(outputs_batch.data.cpu().numpy())
+            else:
+                batch_losses = []
+                for (name, loss_function_one, weight), output, target in zip(self.loss_function, outputs_batch,
+                                                                             targets_var):
+                    loss = loss_function_one(output, target) * weight
+                    batch_losses.append(loss)
+                    partial_batch_losses.setdefault(name, []).append(loss)
+                    output_ = output.data.cpu().numpy()
+                    outputs.setdefault(name, []).append(output_)
+                loss_sum = sum(batch_losses)
+            partial_batch_losses.append(loss_sum)
+            if batch_id == steps:
+                break
+        self.model.train()
+        average_losses = sum(partial_batch_losses) / steps
+        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in
+                   outputs.items()}
+        for name, prediction in outputs.items():
+            if self.activation_func == 'softmax':
+                outputs[name] = [softmax(single_prediction, axis=0) for single_prediction in prediction]
+            elif self.activation_func == 'sigmoid':
+                outputs[name] = [sigmoid(np.squeeze(mask)) for mask in prediction]
+            else:
+                raise Exception('Only softmax and sigmoid activations are allowed')
+
+        return outputs, average_losses
+
+    def _get_targets_and_output(self, data):
+        if self.use_depth:
+            X = data[0]
+            D = data[1]
+            targets_tensors = data[2:]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                D = Variable(D, volatile=True).cuda()
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True).cuda())
+            else:
+                X = Variable(X, volatile=True)
+                D = Variable(D, volatile=True)
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True))
+            outputs_batch = self.model(X, D)
+        else:
+            X = data[0]
+            targets_tensors = data[1:]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True).cuda())
+            else:
+                X = Variable(X, volatile=True)
+                targets_var = []
+                for target_tensor in targets_tensors:
+                    targets_var.append(Variable(target_tensor, volatile=True))
+            outputs_batch = self.model(X)
+
+        return targets_var, outputs_batch
+
+    def _generate_prediction(self, output):
+        y_pred = output['mask_prediction']
+        y_pred = np.stack(y_pred)[:, 1]
         return y_pred
 
 
@@ -494,10 +836,10 @@ class EarlyStopping(Callback):
         self.epoch_id += 1
 
 
-def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
+def postprocessing_pipeline_simplified(cache_dirpath, loader_mode, threshold):
     if loader_mode == 'resize_and_pad':
         size_adjustment_function = partial(crop_image, target_size=ORIGINAL_SIZE)
-    elif loader_mode == 'resize':
+    elif loader_mode == 'resize' or loader_mode == 'stacking':
         size_adjustment_function = partial(resize_image, target_size=ORIGINAL_SIZE)
     else:
         raise NotImplementedError
@@ -506,14 +848,14 @@ def postprocessing_pipeline_simplified(cache_dirpath, loader_mode):
                        transformer=make_apply_transformer(size_adjustment_function,
                                                           output_name='resized_images',
                                                           apply_on=['images']),
-                       input_data=['unet_output'],
-                       adapter=Adapter({'images': E('unet_output', 'mask_prediction'),
+                       input_data=['network_output'],
+                       adapter=Adapter({'images': E('network_output', 'mask_prediction'),
                                         }),
                        experiment_directory=cache_dirpath)
 
     binarizer = Step(name='binarizer',
                      transformer=make_apply_transformer(
-                         partial(binarize, threshold=THRESHOLD),
+                         partial(binarize, threshold=threshold),
                          output_name='binarized_images',
                          apply_on=['images']),
                      input_steps=[mask_resize],

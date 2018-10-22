@@ -1,49 +1,70 @@
 import numpy as np
 import torch
-import torch.optim as optim
-from torch.autograd import Variable
 import torch.nn as nn
+import torch.optim as optim
 from functools import partial
 from toolkit.pytorch_transformers.models import Model
+from torch.autograd import Variable
+from torch.nn import functional as F
 
-from .utils import sigmoid, softmax, get_list_of_image_predictions
+from .architectures import unet, large_kernel_matters, misc, models_with_depth, pspnet
 from . import callbacks as cbk
-from .unet_models import UNetResNet, SaltUNet, SaltLinkNet
-from .lovash_losses import lovasz_softmax
+from .lovasz_losses import lovasz_hinge
+from .utils import sigmoid, softmax, get_list_of_image_predictions, pytorch_where
 
-PRETRAINED_NETWORKS = {'ResNet34': {'model': UNetResNet,
-                                    'model_config': {'encoder_depth': 34,
-                                                     'num_filters': 32, 'dropout_2d': 0.0,
-                                                     'pretrained': True, 'is_deconv': True,
+ARCHITECTURES = {'UNetResNet': {'model': unet.UNetResNet,
+                                'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
+                                                 'dropout_2d': 0.0, 'pretrained': True, 'pool0': False
+                                                 },
+                                'init_weights': False},
+                 'UNetSeResNet': {'model': unet.UNetSeResNet,
+                                  'model_config': {'encoder_depth': 50, 'use_hypercolumn': True,
+                                                   'dropout_2d': 0.0, 'pretrained': 'imagenet', 'pool0': False
+                                                   },
+                                  'init_weights': False},
+                 'UNetSeResNetXt': {'model': unet.UNetSeResNetXt,
+                                    'model_config': {'encoder_depth': 50, 'use_hypercolumn': True,
+                                                     'dropout_2d': 0.0, 'pretrained': 'imagenet', 'pool0': False
                                                      },
                                     'init_weights': False},
-                       'ResNet101': {'model': UNetResNet,
-                                     'model_config': {'encoder_depth': 101,
-                                                      'num_filters': 32, 'dropout_2d': 0.0,
-                                                      'pretrained': True, 'is_deconv': True,
-                                                      },
-                                     'init_weights': False},
-                       'ResNet152': {'model': UNetResNet,
-                                     'model_config': {'encoder_depth': 152,
-                                                      'num_filters': 32, 'dropout_2d': 0.0,
-                                                      'pretrained': True, 'is_deconv': True,
-                                                      },
-                                     'init_weights': False},
-                       'SaltLinkNet': {'model': SaltLinkNet,
-                                       'model_config': {'dropout_2d': 0.5,
-                                                        'pretrained': True, 'is_deconv': True,
-                                                        },
-                                       'init_weights': False},
+                 'UNetDenseNet': {'model': unet.UNetDenseNet,
+                                  'model_config': {'encoder_depth': 121, 'use_hypercolumn': True,
+                                                   'dropout_2d': 0.0, 'pretrained': 'imagenet', 'pool0': False
+                                                   },
+                                  'init_weights': False},
+                 'LargeKernelMatters': {'model': large_kernel_matters.LargeKernelMatters,
+                                        'model_config': {'encoder_depth': 34, 'pretrained': True,
+                                                         'kernel_size': 9, 'internal_channels': 21,
+                                                         'dropout_2d': 0.0, 'use_relu': True, 'pool0': False
+                                                         },
+                                        'init_weights': False},
+                 'PSPNet': {'model': pspnet.PSPNet,
+                            'model_config': {'encoder_depth': 34, 'pretrained': True,
+                                             'use_hypercolumn': True, 'pool0': False
+                                             },
+                            'init_weights': False},
+                 'UNetResNetWithDepth': {'model': models_with_depth.UNetResNetWithDepth,
+                                         'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
+                                                          'dropout_2d': 0.0, 'pretrained': True, 'pool0': False
+                                                          },
+                                         'init_weights': False},
+                 'StackingFCN': {'model': misc.StackingFCN,
+                                 'model_config': {'input_model_nr': 51, 'filter_nr': 32, 'dropout_2d': 0.0
+                                                  },
+                                 'init_weights': True},
+                 'StackingFCNWithDepth': {'model': misc.StackingFCNWithDepth,
+                                          'model_config': {'input_model_nr': 51, 'filter_nr': 32, 'dropout_2d': 0.0
+                                                           },
+                                          'init_weights': True},
+                 'EmptinessClassifier': {'model': misc.EmptinessClassifier,
+                                         'model_config': {'encoder_depth': 18, 'pretrained': True,
+                                                          },
+                                         'init_weights': False},
 
-                       'SaltUNet': {'model': SaltUNet,
-                                    'model_config': {'dropout_2d': 0.5,
-                                                     'pretrained': True, 'is_deconv': True,
-                                                     },
-                                    'init_weights': False},
-                       }
+                 }
 
 
-class PyTorchUNet(Model):
+class SegmentationModel(Model):
     def __init__(self, architecture_config, training_config, callbacks_config):
         super().__init__(architecture_config, training_config, callbacks_config)
         self.activation_func = self.architecture_config['model_params']['activation']
@@ -223,7 +244,7 @@ class DiceLoss(nn.Module):
 
     def forward(self, output, target):
         return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-            torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
 def lovash_loss(output, target):

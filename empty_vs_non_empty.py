@@ -7,6 +7,7 @@ import neptune
 import numpy as np
 import pandas as pd
 from sklearn.externals import joblib
+from sklearn.metrics import roc_auc_score
 from steppy.base import Step, IdentityOperation
 from steppy.adapter import Adapter, E
 
@@ -33,8 +34,8 @@ EXPERIMENT_DIR = '/output/experiment'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
 OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
-SECOND_LEVEL = True
-USE_DEPTH = True
+SECOND_LEVEL = False
+USE_DEPTH = False
 USE_AUXILIARY_DATA = False
 
 if OVERWRITE_EXPERIMENT_DIR and os.path.isdir(EXPERIMENT_DIR):
@@ -54,11 +55,8 @@ STD = [0.229, 0.224, 0.225]
 SEED = 1234
 ID_COLUMN = 'id'
 DEPTH_COLUMN = 'z'
-if SECOND_LEVEL:
-    X_COLUMN = 'file_path_stacked_predictions'
-else:
-    X_COLUMN = 'file_path_image'
-Y_COLUMN = 'file_path_mask'
+X_COLUMN = 'file_path_image'
+Y_COLUMN = 'is_not_empty'
 
 if USE_DEPTH:
     x_columns = [X_COLUMN, DEPTH_COLUMN]
@@ -268,7 +266,7 @@ CONFIG = AttrDict({
                 'neptune_monitor': {'model_name': 'network',
                                     'image_nr': 16,
                                     'image_resize': 1.0,
-                                    'image_every': 10,
+                                    'image_every': None,
                                     'use_depth': USE_DEPTH},
                 'early_stopping': {'patience': PARAMS.patience,
                                    'metric_name': PARAMS.validation_metric_name,
@@ -298,7 +296,7 @@ CONFIG = AttrDict({
 #
 
 
-def stacking_preprocessing_train(config, model_name='network', suffix=''):
+def emptiness_preprocessing_train(config, model_name='network', suffix=''):
     reader_train = Step(name='xy_train{}'.format(suffix),
                         transformer=loaders.XYSplit(train_mode=True, **config.xy_splitter[model_name]),
                         input_data=['input'],
@@ -312,7 +310,7 @@ def stacking_preprocessing_train(config, model_name='network', suffix=''):
                             experiment_directory=config.execution.experiment_dir)
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=loaders.ImageSegmentationLoaderStacking(train_mode=True, **config.loaders.stacking),
+                  transformer=loaders.EmptinessLoader(train_mode=True, **config.loaders.resize),
                   input_steps=[reader_train, reader_inference],
                   adapter=Adapter({'X': E(reader_train.name, 'X'),
                                    'y': E(reader_train.name, 'y'),
@@ -323,7 +321,7 @@ def stacking_preprocessing_train(config, model_name='network', suffix=''):
     return loader
 
 
-def stacking_preprocessing_inference(config, model_name='network', suffix=''):
+def emptiness_preprocessing_inference(config, model_name='network', suffix=''):
     reader_inference = Step(name='xy_inference{}'.format(suffix),
                             transformer=loaders.XYSplit(train_mode=False, **config.xy_splitter[model_name]),
                             input_data=['input'],
@@ -331,7 +329,7 @@ def stacking_preprocessing_inference(config, model_name='network', suffix=''):
                             experiment_directory=config.execution.experiment_dir)
 
     loader = Step(name='loader{}'.format(suffix),
-                  transformer=loaders.ImageSegmentationLoaderStacking(train_mode=False, **config.loaders.stacking),
+                  transformer=loaders.EmptinessLoader(train_mode=False, **config.loaders.resize),
                   input_steps=[reader_inference],
                   adapter=Adapter({'X': E(reader_inference.name, 'X'),
                                    'y': E(reader_inference.name, 'y'),
@@ -342,25 +340,13 @@ def stacking_preprocessing_inference(config, model_name='network', suffix=''):
 
 
 def network(config, suffix='', train_mode=True):
-    if SECOND_LEVEL:
-        preprocessing_train = stacking_preprocessing_train
-        preprocessing_inference = stacking_preprocessing_inference
-    else:
-        preprocessing_train = pipelines.preprocessing_train
-        preprocessing_inference = pipelines.preprocessing_inference
-
     if train_mode:
-        preprocessing = preprocessing_train(config, model_name='network', suffix=suffix)
+        preprocessing = emptiness_preprocessing_train(config, model_name='network', suffix=suffix)
     else:
-        preprocessing = preprocessing_inference(config, suffix=suffix)
-
-    if USE_DEPTH:
-        Network = models.SegmentationModelWithDepth
-    else:
-        Network = models.SegmentationModel
+        preprocessing = emptiness_preprocessing_inference(config, suffix=suffix)
 
     network = utils.FineTuneStep(name='network{}'.format(suffix),
-                                 transformer=Network(**config.model['network']),
+                                 transformer=models.SegmentationModel(**config.model['network']),
                                  input_data=['callback_input'],
                                  input_steps=[preprocessing],
                                  adapter=Adapter({'datagen': E(preprocessing.name, 'datagen'),
@@ -371,68 +357,13 @@ def network(config, suffix='', train_mode=True):
                                  fine_tuning=config.model.network.training_config.fine_tuning,
                                  experiment_directory=config.execution.experiment_dir)
 
-    if config.general.loader_mode == 'resize_and_pad':
-        size_adjustment_function = partial(postprocessing.crop_image, target_size=config.general.original_size)
-    elif config.general.loader_mode == 'resize' or config.general.loader_mode == 'stacking':
-        size_adjustment_function = partial(postprocessing.resize_image, target_size=config.general.original_size)
-    else:
-        raise NotImplementedError
-
     mask_resize = Step(name='mask_resize{}'.format(suffix),
-                       transformer=utils.make_apply_transformer(size_adjustment_function,
+                       transformer=utils.make_apply_transformer(partial(postprocessing.resize_emptiness_predictions,
+                                                                        target_size=config.general.original_size),
                                                                 output_name='resized_images',
                                                                 apply_on=['images']),
                        input_steps=[network],
                        adapter=Adapter({'images': E(network.name, 'mask_prediction'),
-                                        }),
-                       experiment_directory=config.execution.experiment_dir)
-
-    return mask_resize
-
-
-def network_tta(config, suffix=''):
-    if SECOND_LEVEL:
-        raise NotImplementedError('Second level does not work with TTA')
-
-    preprocessing, tta_generator = pipelines.preprocessing_inference_tta(config, model_name='network')
-
-    if USE_DEPTH:
-        Network = models.SegmentationModelWithDepth
-    else:
-        Network = models.SegmentationModel
-
-    network = Step(name='network{}'.format(suffix),
-                   transformer=Network(**config.model['network']),
-                   input_data=['callback_input'],
-                   input_steps=[preprocessing],
-                   is_trainable=True,
-                   experiment_directory=config.execution.experiment_dir)
-
-    tta_aggregator = pipelines.aggregator('tta_aggregator{}'.format(suffix), network,
-                                          tta_generator=tta_generator,
-                                          experiment_directory=config.execution.experiment_dir,
-                                          config=config.tta_aggregator)
-
-    prediction_renamed = Step(name='prediction_renamed{}'.format(suffix),
-                              transformer=IdentityOperation(),
-                              input_steps=[tta_aggregator],
-                              adapter=Adapter({'mask_prediction': E(tta_aggregator.name, 'aggregated_prediction')
-                                               }),
-                              experiment_directory=config.execution.experiment_dir)
-
-    if config.general.loader_mode == 'resize_and_pad':
-        size_adjustment_function = partial(postprocessing.crop_image, target_size=config.general.original_size)
-    elif config.general.loader_mode == 'resize' or config.general.loader_mode == 'stacking':
-        size_adjustment_function = partial(postprocessing.resize_image, target_size=config.general.original_size)
-    else:
-        raise NotImplementedError
-
-    mask_resize = Step(name='mask_resize{}'.format(suffix),
-                       transformer=utils.make_apply_transformer(size_adjustment_function,
-                                                                output_name='resized_images',
-                                                                apply_on=['images']),
-                       input_steps=[prediction_renamed],
-                       adapter=Adapter({'images': E(prediction_renamed.name, 'mask_prediction'),
                                         }),
                        experiment_directory=config.execution.experiment_dir)
 
@@ -447,111 +378,31 @@ def network_tta(config, suffix=''):
 #  |_______/__/ \__\ |_______| \______| \______/      |__|     |__|  \______/  |__| \__|
 #
 
+def prepare_stacking_data():
+    LOGGER.info('preparing stacking metadata')
+    raw_dir = os.path.join(PARAMS.stacking_data_dir, 'raw')
+    grouped_by_id_dir = os.path.join(PARAMS.stacking_data_dir, 'predictions_by_id')
+    joined_dir = os.path.join(PARAMS.stacking_data_dir, 'joined_predictions')
 
-def train():
-    meta = pd.read_csv(PARAMS.metadata_filepath)
-    meta_train = meta[meta['is_train'] == 1]
+    for dirpath in [PARAMS.stacking_data_dir, grouped_by_id_dir, joined_dir]:
+        os.makedirs(dirpath, exist_ok=True)
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
-    for train_idx, valid_idx in cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1)):
-        break
-
-    meta_train_split, meta_valid_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
-
-    if USE_AUXILIARY_DATA:
-        auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
-        train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(meta_valid_split[ID_COLUMN].tolist())]
-        meta_train_split = pd.concat([meta_train_split, train_auxiliary], axis=0)
-
-    if DEV_MODE:
-        meta_train_split = meta_train_split.sample(PARAMS.dev_mode_size, random_state=SEED)
-        meta_valid_split = meta_valid_split.sample(int(PARAMS.dev_mode_size / 2), random_state=SEED)
-
-    data = {'input': {'meta': meta_train_split
-                      },
-            'callback_input': {'meta_valid': meta_valid_split
-                               }
-            }
-
-    pipeline_network = network(config=CONFIG, train_mode=True)
-    pipeline_network.clean_cache()
-    pipeline_network.fit_transform(data)
-    pipeline_network.clean_cache()
+    LOGGER.info('grouping predictions by id')
+    utils.group_predictions_by_id(raw_dir=raw_dir, grouped_by_id_dir=grouped_by_id_dir)
+    LOGGER.info('joining predictions')
+    utils.join_id_predictions(grouped_by_id_dir=grouped_by_id_dir, joined_predictions_dir=joined_dir)
+    meta = utils.generate_metadata_stacking(metadata_filepath=PARAMS.metadata_filepath,
+                                            joined_predictions_dir=joined_dir)
+    meta.to_csv(PARAMS.metadata_filepath, index=None)
 
 
-def evaluate():
-    meta = pd.read_csv(PARAMS.metadata_filepath)
-    meta_train = meta[meta['is_train'] == 1]
-
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
-    for train_idx, valid_idx in cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1)):
-        break
-
-    meta_valid_split = meta_train.iloc[valid_idx]
-    y_true_valid = utils.read_masks(meta_valid_split[Y_COLUMN].values)
-
-    if DEV_MODE:
-        meta_valid_split = meta_valid_split.sample(PARAMS.dev_mode_size, random_state=SEED)
-
-    data = {'input': {'meta': meta_valid_split,
-                      },
-            'callback_input': {'meta_valid': None
-                               }
-            }
-    pipeline_network = network(config=CONFIG, train_mode=False)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
-    pipeline_network.clean_cache()
-    output = pipeline_network.transform(data)
-    valid_masks = {'input_masks': output
-                   }
-    output = pipeline_postprocessing.transform(valid_masks)
-    pipeline_network.clean_cache()
-    pipeline_postprocessing.clean_cache()
-    y_pred_valid = output['binarized_images']
-
-    LOGGER.info('Calculating IOU and IOUT Scores')
-    iou_score, iout_score = calculate_scores(y_true_valid, y_pred_valid)
-    LOGGER.info('IOU score on validation is {}'.format(iou_score))
-    CTX.channel_send('IOU', 0, iou_score)
-    LOGGER.info('IOUT score on validation is {}'.format(iout_score))
-    CTX.channel_send('IOUT', 0, iout_score)
-
-    results_filepath = os.path.join(EXPERIMENT_DIR, 'validation_results.pkl')
-    LOGGER.info('Saving validation results to {}'.format(results_filepath))
-    joblib.dump((meta_valid_split, y_true_valid, y_pred_valid), results_filepath)
-
-
-def predict():
-    meta = pd.read_csv(PARAMS.metadata_filepath)
-    meta_test = meta[meta['is_train'] == 0]
-
-    if DEV_MODE:
-        meta_test = meta_test.sample(PARAMS.dev_mode_size, random_state=SEED)
-
-    data = {'input': {'meta': meta_test,
-                      },
-            'callback_input': {'meta_valid': None
-                               }
-            }
-
-    pipeline_network = network(config=CONFIG, train_mode=False)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
-    pipeline_network.clean_cache()
-    predicted_masks = pipeline_network.transform(data)
-    test_masks = {'input_masks': predicted_masks
-                  }
-    output = pipeline_postprocessing.transform(test_masks)
-    pipeline_network.clean_cache()
-    pipeline_postprocessing.clean_cache()
-    y_pred_test = output['binarized_images']
-
-    submission = utils.create_submission(meta_test, y_pred_test)
-
-    submission_filepath = os.path.join(EXPERIMENT_DIR, 'submission.csv')
-
-    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
-    LOGGER.info('submission saved to {}'.format(submission_filepath))
-    LOGGER.info('submission head \n\n{}'.format(submission.head()))
+def prepare_metadata():
+    LOGGER.info('creating metadata')
+    meta = utils.generate_metadata(train_images_dir=PARAMS.train_images_dir,
+                                   test_images_dir=PARAMS.test_images_dir,
+                                   depths_filepath=PARAMS.depths_filepath
+                                   )
+    meta.to_csv(PARAMS.metadata_filepath, index=None)
 
 
 def train_evaluate_cv():
@@ -563,7 +414,7 @@ def train_evaluate_cv():
 
     cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-    fold_iou, fold_iout = [], []
+    fold_auc = []
     for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
         train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
@@ -573,19 +424,14 @@ def train_evaluate_cv():
             train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
 
         LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        auc, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
+        LOGGER.info('Fold {} AUC {}'.format(fold_id, AUC))
+        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, AUC)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
+        fold_auc.append(AUC)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
-
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+    log_scores(auc_mean, auc_std)
 
 
 def train_evaluate_predict_cv():
@@ -598,7 +444,7 @@ def train_evaluate_predict_cv():
 
     cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-    fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
+    fold_auc, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], []
     for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
         train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
@@ -608,18 +454,15 @@ def train_evaluate_predict_cv():
             train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
 
         LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
-                                                                                            valid_data_split,
-                                                                                            meta_test,
-                                                                                            fold_id)
+        auc, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
+                                                                                      valid_data_split,
+                                                                                      meta_test,
+                                                                                      fold_id)
 
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, auc)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
+        fold_auc.append(auc)
         out_of_fold_train_predictions.append(out_of_fold_prediction)
         out_of_fold_test_predictions.append(test_prediction)
 
@@ -628,11 +471,8 @@ def train_evaluate_predict_cv():
         train_ids.extend(idx_fold)
         train_predictions.extend(train_pred_fold)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
-
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
-
+    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+    log_scores(auc_mean, auc_std)
     save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
 
 
@@ -645,24 +485,19 @@ def evaluate_cv():
 
     cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-    fold_iou, fold_iout = [], []
+    fold_auc = []
     for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
         valid_data_split = meta_train.iloc[valid_idx]
 
         LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, _ = fold_evaluate_loop(valid_data_split, fold_id)
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        auc, _ = fold_evaluate_loop(valid_data_split, fold_id)
+        LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, auc)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
+        fold_auc.append(auc)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
-
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+    log_scores(auc_mean, auc_std)
 
 
 def evaluate_predict_cv():
@@ -675,22 +510,19 @@ def evaluate_predict_cv():
 
     cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-    fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
+    fold_auc, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], []
     for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
         valid_data_split = meta_train.iloc[valid_idx]
 
         LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
-                                                                                        meta_test,
-                                                                                        fold_id)
+        auc, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
+                                                                                  meta_test,
+                                                                                  fold_id)
 
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, auc)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
+        fold_auc.append(auc)
         out_of_fold_train_predictions.append(out_of_fold_prediction)
         out_of_fold_test_predictions.append(test_prediction)
 
@@ -699,15 +531,13 @@ def evaluate_predict_cv():
         train_ids.extend(idx_fold)
         train_predictions.extend(train_pred_fold)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
-
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+    log_scores(auc_mean, auc_std)
     save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
 
 
 def fold_fit_evaluate_predict_loop(train_data_split, valid_data_split, test, fold_id):
-    iou, iout, predicted_masks_valid = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
+    auc, predicted_masks_valid = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
 
     test_pipe_input = {'input': {'meta': test
                                  },
@@ -721,7 +551,7 @@ def fold_fit_evaluate_predict_loop(train_data_split, valid_data_split, test, fol
     utils.clean_object_from_memory(pipeline_network)
 
     predicted_masks_test = predicted_masks_test['resized_images']
-    return iou, iout, predicted_masks_valid, predicted_masks_test
+    return auc, predicted_masks_valid, predicted_masks_test
 
 
 def fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id):
@@ -749,26 +579,19 @@ def fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id):
 
     LOGGER.info('Start pipeline transform on valid')
     pipeline_network = network(config=config, suffix='_fold_{}'.format(fold_id), train_mode=False)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=config, suffix='_fold_{}'.format(fold_id))
     pipeline_network.clean_cache()
-    pipeline_postprocessing.clean_cache()
     predicted_masks_valid = pipeline_network.transform(valid_pipe_input)
-    valid_pipe_masks = {'input_masks': predicted_masks_valid
-                        }
-    output_valid = pipeline_postprocessing.transform(valid_pipe_masks)
     utils.clean_object_from_memory(pipeline_network)
 
-    y_pred_valid = output_valid['binarized_images']
-    y_true_valid = utils.read_masks(valid_data_split[Y_COLUMN].values)
+    y_pred_valid = predicted_masks_valid['resized_images']
+    y_true_valid = valid_data_split[Y_COLUMN].values
 
-    iou, iout = calculate_scores(y_true_valid, y_pred_valid)
-
-    predicted_masks_valid = predicted_masks_valid['resized_images']
-    return iou, iout, (valid_ids, predicted_masks_valid)
+    auc = calculate_scores(y_true_valid, y_pred_valid)
+    return auc, (valid_ids, y_pred_valid)
 
 
 def fold_evaluate_predict_loop(valid_data_split, test, fold_id):
-    iou, iout, predicted_masks_valid = fold_evaluate_loop(valid_data_split, fold_id)
+    auc, predicted_masks_valid = fold_evaluate_loop(valid_data_split, fold_id)
 
     test_pipe_input = {'input': {'meta': test
                                  },
@@ -782,7 +605,7 @@ def fold_evaluate_predict_loop(valid_data_split, test, fold_id):
     utils.clean_object_from_memory(pipeline_network)
 
     predicted_masks_test = predicted_masks_test['resized_images']
-    return iou, iout, predicted_masks_valid, predicted_masks_test
+    return auc, predicted_masks_valid, predicted_masks_test
 
 
 def fold_evaluate_loop(valid_data_split, fold_id):
@@ -795,21 +618,15 @@ def fold_evaluate_loop(valid_data_split, fold_id):
 
     LOGGER.info('Start pipeline transform on valid')
     pipeline_network = network(config=CONFIG, suffix='_fold_{}'.format(fold_id), train_mode=False)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG, suffix='_fold_{}'.format(fold_id))
     pipeline_network.clean_cache()
-    pipeline_postprocessing.clean_cache()
     predicted_masks_valid = pipeline_network.transform(valid_pipe_input)
-    valid_pipe_masks = {'input_masks': predicted_masks_valid
-                        }
-    output_valid = pipeline_postprocessing.transform(valid_pipe_masks)
     utils.clean_object_from_memory(pipeline_network)
 
-    y_pred_valid = output_valid['binarized_images']
-    y_true_valid = utils.read_masks(valid_data_split[Y_COLUMN].values)
+    y_pred_valid = predicted_masks_valid['resized_images']
+    y_true_valid = valid_data_split[Y_COLUMN].values
 
-    iou, iout = calculate_scores(y_true_valid, y_pred_valid)
-    predicted_masks_valid = predicted_masks_valid['resized_images']
-    return iou, iout, (valid_ids, predicted_masks_valid)
+    auc = calculate_scores(y_true_valid, y_pred_valid)
+    return auc, (valid_ids, y_pred_valid)
 
 
 #   __    __  .___________. __   __          _______.
@@ -821,9 +638,9 @@ def fold_evaluate_loop(valid_data_split, fold_id):
 #
 
 def calculate_scores(y_true, y_pred):
-    iou = metrics.intersection_over_union(y_true, y_pred)
-    iout = metrics.intersection_over_union_thresholds(y_true, y_pred)
-    return iou, iout
+    y_pred = np.array([y[1, 0, 0] for y in y_pred])
+    auc = roc_auc_score(y_true, y_pred)
+    return auc
 
 
 def add_fold_id_suffix(config, fold_id):
@@ -835,23 +652,14 @@ def add_fold_id_suffix(config, fold_id):
     return config
 
 
-def log_scores(iou_mean, iou_std, iout_mean, iout_std):
-    LOGGER.info('IOU mean {}, IOU std {}'.format(iou_mean, iou_std))
-    CTX.channel_send('IOU', 0, iou_mean)
-    CTX.channel_send('IOU STD', 0, iou_std)
-
-    LOGGER.info('IOUT mean {}, IOUT std {}'.format(iout_mean, iout_std))
-    CTX.channel_send('IOUT', 0, iout_mean)
-    CTX.channel_send('IOUT STD', 0, iout_std)
+def log_scores(auc_mean, auc_std):
+    LOGGER.info('AUC mean {}, AUC std {}'.format(auc_mean, auc_std))
+    CTX.channel_send('AUC', 0, auc_mean)
+    CTX.channel_send('AUC STD', 0, auc_std)
 
 
 def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions):
     averaged_mask_predictions_test = np.mean(np.array(out_of_fold_test_predictions), axis=0)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
-    pipeline_postprocessing.clean_cache()
-    test_pipe_masks = {'input_masks': {'resized_images': averaged_mask_predictions_test}
-                       }
-    y_pred_test = pipeline_postprocessing.transform(test_pipe_masks)['binarized_images']
 
     LOGGER.info('Saving predictions')
     out_of_fold_train_predictions_path = os.path.join(EXPERIMENT_DIR, 'out_of_fold_train_predictions.pkl')
@@ -861,12 +669,6 @@ def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_p
     out_of_fold_test_predictions_path = os.path.join(EXPERIMENT_DIR, 'out_of_fold_test_predictions.pkl')
     joblib.dump({'ids': meta_test[ID_COLUMN].tolist(),
                  'images': averaged_mask_predictions_test}, out_of_fold_test_predictions_path)
-
-    submission = utils.create_submission(meta_test, y_pred_test)
-    submission_filepath = os.path.join(EXPERIMENT_DIR, 'submission.csv')
-    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
-    LOGGER.info('submission saved to {}'.format(submission_filepath))
-    LOGGER.info('submission head \n\n{}'.format(submission.head()))
 
 
 #  .___  ___.      ___       __  .__   __.

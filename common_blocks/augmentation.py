@@ -35,6 +35,8 @@ affine_seq = iaa.Sequential([
     # General
     iaa.SomeOf((1, 2),
                [iaa.Fliplr(0.5),
+                iaa.Sharpen(alpha=0.5, lightness=1),
+                iaa.Emboss(alpha=0.5, strength=1),
                 iaa.Affine(rotate=(-10, 10),
                            translate_percent={"x": (-0.05, 0.05)},
                            mode='edge'),
@@ -58,11 +60,6 @@ intensity_seq = iaa.Sequential([
                 iaa.MultiplyElementwise((0.95, 1.05)),
             ]),
         ]),
-        iaa.OneOf([
-            iaa.GaussianBlur(sigma=(0.0, 1.0)),
-            iaa.AverageBlur(k=(2, 5)),
-            iaa.MedianBlur(k=(3, 5))
-        ])
     ])
 ], random_order=False)
 

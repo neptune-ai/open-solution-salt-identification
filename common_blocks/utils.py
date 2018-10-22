@@ -8,6 +8,7 @@ from itertools import chain
 from collections import Iterable
 import gc
 
+import glob
 import numpy as np
 import pandas as pd
 import torch
@@ -17,8 +18,10 @@ from attrdict import AttrDict
 from tqdm import tqdm
 from pycocotools import mask as cocomask
 from sklearn.model_selection import BaseCrossValidator
+from sklearn.externals import joblib
 from steppy.base import BaseTransformer, Step
 from steppy.utils import get_logger
+from skimage.transform import resize
 import yaml
 from imgaug import augmenters as iaa
 import imgaug as ia
@@ -132,23 +135,31 @@ def generate_metadata(train_images_dir, test_images_dir, depths_filepath):
         mask_filepath = os.path.join(train_images_dir, 'masks', filename)
         image_id = filename.split('.')[0]
         depth = depths[depths['id'] == image_id]['z'].values[0]
+        size = (np.array(Image.open(mask_filepath)) > 0).astype(np.uint8).sum()
+        is_not_empty = int(size != 0)
 
         metadata.setdefault('file_path_image', []).append(image_filepath)
         metadata.setdefault('file_path_mask', []).append(mask_filepath)
         metadata.setdefault('is_train', []).append(1)
         metadata.setdefault('id', []).append(image_id)
         metadata.setdefault('z', []).append(depth)
+        metadata.setdefault('size', []).append(size)
+        metadata.setdefault('is_not_empty', []).append(is_not_empty)
 
     for filename in tqdm(os.listdir(os.path.join(test_images_dir, 'images'))):
         image_filepath = os.path.join(test_images_dir, 'images', filename)
         image_id = filename.split('.')[0]
         depth = depths[depths['id'] == image_id]['z'].values[0]
+        size = np.nan
+        is_not_empty = np.nan
 
         metadata.setdefault('file_path_image', []).append(image_filepath)
         metadata.setdefault('file_path_mask', []).append(None)
         metadata.setdefault('is_train', []).append(0)
         metadata.setdefault('id', []).append(image_id)
         metadata.setdefault('z', []).append(depth)
+        metadata.setdefault('size', []).append(size)
+        metadata.setdefault('is_not_empty', []).append(is_not_empty)
 
     return pd.DataFrame(metadata)
 
@@ -372,13 +383,13 @@ class KFoldBySortedValue(BaseCrossValidator):
         return self.n_splits
 
 
-def plot_list(images=[], labels=[]):
+def plot_list(images=[], labels=[], vmin=0.0, vmax=1.0):
     n_img = len(images)
     n_lab = len(labels)
     n = n_lab + n_img
     fig, axs = plt.subplots(1, n, figsize=(16, 12))
     for i, image in enumerate(images):
-        axs[i].imshow(image)
+        axs[i].imshow(image, vmin=vmin, vmax=vmax)
         axs[i].set_xticks([])
         axs[i].set_yticks([])
     for j, label in enumerate(labels):
@@ -467,3 +478,104 @@ class FineTuneStep(Step):
                         .format(self.name, self.exp_dir_outputs_step))
             self._persist_output(step_output_data, self.exp_dir_outputs_step)
         return step_output_data
+
+
+def pytorch_where(cond, x_1, x_2):
+    cond = cond.float()
+    return (cond * x_1) + ((1 - cond) * x_2)
+
+
+class AddDepthChannels:
+    def __call__(self, tensor):
+        _, h, w = tensor.size()
+        for row, const in enumerate(np.linspace(0, 1, h)):
+            tensor[1, row, :] = const
+        tensor[2] = tensor[0] * tensor[1]
+        return tensor
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+
+def load_image(filepath, is_mask=False):
+    if is_mask:
+        img = (np.array(Image.open(filepath)) > 0).astype(np.uint8)
+    else:
+        img = np.array(Image.open(filepath)).astype(np.uint8)
+    return img
+
+
+def save_image(img, filepath):
+    img = Image.fromarray((img))
+    img.save(filepath)
+
+
+def resize_image(image, target_shape, is_mask=False):
+    if is_mask:
+        image = (resize(image, target_shape, preserve_range=True) > 0).astype(int)
+    else:
+        image = resize(image, target_shape)
+    return image
+
+
+def get_cut_coordinates(mask, step=4, min_img_crop=20, min_size=50, max_size=300):
+    h, w = mask.shape
+    ts = []
+    rots = [1, 2, 3, 0]
+    for rot in rots:
+        mask = np.rot90(mask)
+        for t in range(min_img_crop, h, step):
+            crop = mask[:t, :t]
+            size = crop.mean() * h * w
+            if min_size < size <= max_size:
+                break
+        ts.append((t, rot))
+    try:
+        ts = [(t, r) for t, r in ts if t < 99]
+        best_t, best_rot = sorted(ts, key=lambda x: x[0], reverse=True)[0]
+    except IndexError:
+        return (0, w), (0, h), False
+    if best_t < min_img_crop:
+        return (0, w), (0, h), False
+
+    if best_rot == 0:
+        x1, x2, y1, y2 = 0, best_t, 0, best_t
+    elif best_rot == 1:
+        x1, x2, y1, y2 = 0, best_t, h - best_t, h
+    elif best_rot == 2:
+        x1, x2, y1, y2 = w - best_t, w, h - best_t, h
+    elif best_rot == 3:
+        x1, x2, y1, y2 = w - best_t, w, 0, best_t
+    else:
+        raise ValueError
+    return (x1, x2), (y1, y2), True
+
+
+def group_predictions_by_id(raw_dir, grouped_by_id_dir):
+    experiments = sorted(os.listdir(raw_dir))
+    for experiment in tqdm(experiments):
+        for train_test in ['train', 'test']:
+            oof_predictions = joblib.load(os.path.join(raw_dir,
+                                                       experiment,
+                                                       'out_of_fold_{}_predictions.pkl'.format(train_test)))
+            ids, images = oof_predictions['ids'], oof_predictions['images']
+            images = [image[1, :, :] for image in images]
+            for idx, image in zip(ids, images):
+                os.makedirs(os.path.join(grouped_by_id_dir, idx), exist_ok=True)
+                joblib.dump(image, os.path.join(grouped_by_id_dir, idx, '{}.pkl'.format(experiment)))
+
+
+def join_id_predictions(grouped_by_id_dir, joined_predictions_dir):
+    for idx in tqdm(os.listdir(grouped_by_id_dir)):
+        predictions = []
+        for prediction_filepath in glob.glob('{}/{}/*'.format(grouped_by_id_dir, idx)):
+            prediction = joblib.load(prediction_filepath)
+            predictions.append(prediction)
+        predictions = np.stack(predictions, axis=-1)
+        joblib.dump(predictions, os.path.join(joined_predictions_dir, '{}.pkl'.format(idx)))
+
+
+def generate_metadata_stacking(metadata_filepath, joined_predictions_dir, colname='file_path_stacked_predictions'):
+    meta = pd.read_csv(metadata_filepath)
+    meta[colname] = meta['id'].apply(lambda x: os.path.join(joined_predictions_dir, '{}.pkl'.format(x)))
+    return meta

@@ -8,10 +8,17 @@ from .utils import make_apply_transformer
 from .postprocessing import binarize
 
 
+<<<<<<< HEAD:common_blocks/pipelines.py
+def preprocessing_train(config, model_name='network', suffix=''):
+    if config.general.loader_mode == 'resize_and_pad':
+        loader_config = config.loaders.resize_and_pad
+    elif config.general.loader_mode == 'resize' or config.general.loader_mode == 'stacking':
+=======
 def preprocessing_train(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
         loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
+>>>>>>> 8cb1f4cfb5a1b50892fb797992fc569d40ab09a7:common_blocks/pipelines.py
         loader_config = config.loaders.resize
     else:
         raise NotImplementedError
@@ -56,10 +63,17 @@ def preprocessing_train(config, model_name='unet', suffix=''):
     return loader
 
 
+<<<<<<< HEAD:common_blocks/pipelines.py
+def preprocessing_inference(config, model_name='network', suffix=''):
+    if config.general.loader_mode == 'resize_and_pad':
+        loader_config = config.loaders.resize_and_pad
+    elif config.general.loader_mode == 'resize' or config.general.loader_mode == 'stacking':
+=======
 def preprocessing_inference(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
         loader_config = config.loaders.resize_and_pad
     elif config.general.loader_mode == 'resize':
+>>>>>>> 8cb1f4cfb5a1b50892fb797992fc569d40ab09a7:common_blocks/pipelines.py
         loader_config = config.loaders.resize
     else:
         raise NotImplementedError
@@ -92,10 +106,17 @@ def preprocessing_inference(config, model_name='unet', suffix=''):
     return loader
 
 
+<<<<<<< HEAD:common_blocks/pipelines.py
+def preprocessing_inference_tta(config, model_name='network', suffix=''):
+    if config.general.loader_mode == 'resize_and_pad':
+        loader_config = config.loaders.pad_tta
+    elif config.general.loader_mode == 'resize' or config.general.loader_mode == 'stacking':
+=======
 def preprocessing_inference_tta(config, model_name='unet', suffix=''):
     if config.general.loader_mode == 'resize_and_pad':
         loader_config = config.loaders.pad_tta
     elif config.general.loader_mode == 'resize':
+>>>>>>> 8cb1f4cfb5a1b50892fb797992fc569d40ab09a7:common_blocks/pipelines.py
         loader_config = config.loaders.resize_tta
     else:
         raise NotImplementedError
