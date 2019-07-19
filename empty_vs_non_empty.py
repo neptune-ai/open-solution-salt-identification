@@ -4,6 +4,7 @@ import shutil
 
 from attrdict import AttrDict
 import neptune
+from neptunecontrib.api.utils import get_filepaths
 import numpy as np
 import pandas as pd
 from sklearn.externals import joblib
@@ -31,13 +32,15 @@ neptune.init(project_qualified_name=CONFIG.project)
 #   \______| \______/  |__| \__| |__|     |__|  \______| |_______/
 #
 
-EXPERIMENT_DIR = 'data/experiments/empty_non_empty'
+EXPERIMENT_NAME = 'empty_vs_non_empty'
+EXPERIMENT_DIR = 'data/experiments/{}'.format(EXPERIMENT_NAME)
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
 OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
 SECOND_LEVEL = False
 USE_DEPTH = False
 USE_AUXILIARY_DATA = False
+TAGS = ['first-level', 'training', 'empty_vs_non_empty']
 
 if OVERWRITE_EXPERIMENT_DIR and os.path.isdir(EXPERIMENT_DIR):
     shutil.rmtree(EXPERIMENT_DIR)
@@ -376,32 +379,6 @@ def network(config, suffix='', train_mode=True):
 #  |_______/__/ \__\ |_______| \______| \______/      |__|     |__|  \______/  |__| \__|
 #
 
-def prepare_stacking_data():
-    LOGGER.info('preparing stacking metadata')
-    raw_dir = os.path.join(PARAMS.stacking_data_dir, 'raw')
-    grouped_by_id_dir = os.path.join(PARAMS.stacking_data_dir, 'predictions_by_id')
-    joined_dir = os.path.join(PARAMS.stacking_data_dir, 'joined_predictions')
-
-    for dirpath in [PARAMS.stacking_data_dir, grouped_by_id_dir, joined_dir]:
-        os.makedirs(dirpath, exist_ok=True)
-
-    LOGGER.info('grouping predictions by id')
-    utils.group_predictions_by_id(raw_dir=raw_dir, grouped_by_id_dir=grouped_by_id_dir)
-    LOGGER.info('joining predictions')
-    utils.join_id_predictions(grouped_by_id_dir=grouped_by_id_dir, joined_predictions_dir=joined_dir)
-    meta = utils.generate_metadata_stacking(metadata_filepath=PARAMS.metadata_filepath,
-                                            joined_predictions_dir=joined_dir)
-    meta.to_csv(PARAMS.metadata_filepath, index=None)
-
-
-def prepare_metadata():
-    LOGGER.info('creating metadata')
-    meta = utils.generate_metadata(train_images_dir=PARAMS.train_images_dir,
-                                   test_images_dir=PARAMS.test_images_dir,
-                                   depths_filepath=PARAMS.depths_filepath
-                                   )
-    meta.to_csv(PARAMS.metadata_filepath, index=None)
-
 
 def train_evaluate_cv():
     meta = pd.read_csv(PARAMS.metadata_filepath)
@@ -410,26 +387,32 @@ def train_evaluate_cv():
 
     meta_train = meta[meta['is_train'] == 1]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['train', 'evaluate', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_auc = []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        if USE_AUXILIARY_DATA:
-            auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
-            train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
-            train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
+        fold_auc = []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        auc, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
-        LOGGER.info('Fold {} AUC {}'.format(fold_id, AUC))
-        neptune.send_metric('Fold {} AUC'.format(fold_id), AUC)
+            if USE_AUXILIARY_DATA:
+                auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
+                train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
+                train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
 
-        fold_auc.append(AUC)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            auc, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
+            LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+            neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
-    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
-    log_scores(auc_mean, auc_std)
+            fold_auc.append(auc)
+
+        auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+        log_scores(auc_mean, auc_std)
 
 
 def train_evaluate_predict_cv():
@@ -440,38 +423,44 @@ def train_evaluate_predict_cv():
     meta_train = meta[meta['is_train'] == 1]
     meta_test = meta[meta['is_train'] == 0]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['train', 'evaluate', 'predict', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_auc, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        if USE_AUXILIARY_DATA:
-            auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
-            train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
-            train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
+        fold_auc, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        auc, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
-                                                                                      valid_data_split,
-                                                                                      meta_test,
-                                                                                      fold_id)
+            if USE_AUXILIARY_DATA:
+                auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
+                train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
+                train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
 
-        LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
-        neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            auc, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
+                                                                                          valid_data_split,
+                                                                                          meta_test,
+                                                                                          fold_id)
 
-        fold_auc.append(auc)
-        out_of_fold_train_predictions.append(out_of_fold_prediction)
-        out_of_fold_test_predictions.append(test_prediction)
+            LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+            neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
-    train_ids, train_predictions = [], []
-    for idx_fold, train_pred_fold in out_of_fold_train_predictions:
-        train_ids.extend(idx_fold)
-        train_predictions.extend(train_pred_fold)
+            fold_auc.append(auc)
+            out_of_fold_train_predictions.append(out_of_fold_prediction)
+            out_of_fold_test_predictions.append(test_prediction)
 
-    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
-    log_scores(auc_mean, auc_std)
-    save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
+        train_ids, train_predictions = [], []
+        for idx_fold, train_pred_fold in out_of_fold_train_predictions:
+            train_ids.extend(idx_fold)
+            train_predictions.extend(train_pred_fold)
+
+        auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+        log_scores(auc_mean, auc_std)
+        save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
 
 
 def evaluate_cv():
@@ -481,21 +470,27 @@ def evaluate_cv():
 
     meta_train = meta[meta['is_train'] == 1]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['evaluate', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_auc = []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        valid_data_split = meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        auc, _ = fold_evaluate_loop(valid_data_split, fold_id)
-        LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
-        neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
+        fold_auc = []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            valid_data_split = meta_train.iloc[valid_idx]
 
-        fold_auc.append(auc)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            auc, _ = fold_evaluate_loop(valid_data_split, fold_id)
+            LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+            neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
-    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
-    log_scores(auc_mean, auc_std)
+            fold_auc.append(auc)
+
+        auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+        log_scores(auc_mean, auc_std)
 
 
 def evaluate_predict_cv():
@@ -506,32 +501,38 @@ def evaluate_predict_cv():
     meta_train = meta[meta['is_train'] == 1]
     meta_test = meta[meta['is_train'] == 0]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['evaluate', 'predict', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_auc, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        valid_data_split = meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        auc, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
-                                                                                  meta_test,
-                                                                                  fold_id)
+        fold_auc, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            valid_data_split = meta_train.iloc[valid_idx]
 
-        LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
-        neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            auc, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
+                                                                                      meta_test,
+                                                                                      fold_id)
 
-        fold_auc.append(auc)
-        out_of_fold_train_predictions.append(out_of_fold_prediction)
-        out_of_fold_test_predictions.append(test_prediction)
+            LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
+            neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
-    train_ids, train_predictions = [], []
-    for idx_fold, train_pred_fold in out_of_fold_train_predictions:
-        train_ids.extend(idx_fold)
-        train_predictions.extend(train_pred_fold)
+            fold_auc.append(auc)
+            out_of_fold_train_predictions.append(out_of_fold_prediction)
+            out_of_fold_test_predictions.append(test_prediction)
 
-    auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
-    log_scores(auc_mean, auc_std)
-    save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
+        train_ids, train_predictions = [], []
+        for idx_fold, train_pred_fold in out_of_fold_train_predictions:
+            train_ids.extend(idx_fold)
+            train_predictions.extend(train_pred_fold)
+
+        auc_mean, auc_std = np.mean(fold_auc), np.std(fold_auc)
+        log_scores(auc_mean, auc_std)
+        save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
 
 
 def fold_fit_evaluate_predict_loop(train_data_split, valid_data_split, test, fold_id):

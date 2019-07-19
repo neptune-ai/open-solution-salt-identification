@@ -27,7 +27,7 @@ PARAMS = CONFIG.parameters
 
 def prepare_stacking_data():
     LOGGER.info('preparing stacking metadata')
-    raw_dir = os.path.join(PARAMS.stacking_data_dir, 'raw')
+    raw_dir = os.path.join(PARAMS.stacking_data_dir, 'out_of_folds_predictions')
     grouped_by_id_dir = os.path.join(PARAMS.stacking_data_dir, 'predictions_by_id')
     joined_dir = os.path.join(PARAMS.stacking_data_dir, 'joined_predictions')
 

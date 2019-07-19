@@ -45,15 +45,15 @@ ARCHITECTURES = {'UNetResNet': {'model': unet.UNetResNet,
                             'init_weights': False},
                  'UNetResNetWithDepth': {'model': models_with_depth.UNetResNetWithDepth,
                                          'model_config': {'encoder_depth': 34, 'use_hypercolumn': True,
-                                                          'dropout_2d': 0.0, 'pretrained': True, 'pool0': False
+                                                          'dropout_2d': 0.0, 'pretrained': True
                                                           },
                                          'init_weights': False},
                  'StackingFCN': {'model': misc.StackingFCN,
-                                 'model_config': {'input_model_nr': 51, 'filter_nr': 32, 'dropout_2d': 0.0
+                                 'model_config': {'input_model_nr': 32, 'filter_nr': 32, 'dropout_2d': 0.0
                                                   },
                                  'init_weights': True},
                  'StackingFCNWithDepth': {'model': misc.StackingFCNWithDepth,
-                                          'model_config': {'input_model_nr': 51, 'filter_nr': 32, 'dropout_2d': 0.0
+                                          'model_config': {'input_model_nr': 32, 'filter_nr': 32, 'dropout_2d': 0.0
                                                            },
                                           'init_weights': True},
                  'EmptinessClassifier': {'model': misc.EmptinessClassifier,
@@ -73,7 +73,7 @@ class SegmentationModel(Model):
         self.weight_regularization = weight_regularization
         self.optimizer = optim.Adam(self.weight_regularization(self.model, **architecture_config['regularizer_params']),
                                     **architecture_config['optimizer_params'])
-        self.callbacks = callbacks_unet(self.callbacks_config)
+        self.callbacks = callbacks_network(self.callbacks_config)
 
     def fit(self, datagen, validation_datagen=None, meta_valid=None):
         self._initialize_model_weights()
@@ -129,6 +129,7 @@ class SegmentationModel(Model):
                 partial_batch_losses[name] = loss_function(output, target) * weight
             batch_loss = sum(partial_batch_losses.values())
         partial_batch_losses['sum'] = batch_loss
+
         batch_loss.backward()
         self.optimizer.step()
 
@@ -161,6 +162,7 @@ class SegmentationModel(Model):
             else:
                 X = Variable(X, volatile=True)
             outputs_batch = self.model(X)
+
             if len(self.output_names) == 1:
                 outputs.setdefault(self.output_names[0], []).append(outputs_batch.data.cpu().numpy())
             else:
@@ -175,23 +177,18 @@ class SegmentationModel(Model):
         return outputs
 
     def set_model(self):
-        encoder = self.architecture_config['model_params']['encoder']
-        config = PRETRAINED_NETWORKS[encoder]
+        architecture = self.architecture_config['model_params']['architecture']
+        config = ARCHITECTURES[architecture]
         self.model = config['model'](num_classes=self.architecture_config['model_params']['out_channels'],
                                      **config['model_config'])
         self._initialize_model_weights = lambda: None
 
     def set_loss(self):
         if self.activation_func == 'softmax':
-            loss_function = lovash_loss
+            raise NotImplementedError('No softmax loss defined')
         elif self.activation_func == 'sigmoid':
-            loss_function = partial(mixed_dice_bce_loss,
-                                    dice_loss=multiclass_dice_loss,
-                                    bce_loss=nn.BCEWithLogitsLoss(),
-                                    dice_activation='sigmoid',
-                                    dice_weight=self.architecture_config['model_params']['dice_weight'],
-                                    bce_weight=self.architecture_config['model_params']['bce_weight']
-                                    )
+            loss_function = lovasz_loss
+            # loss_function = nn.BCEWithLogitsLoss()
         else:
             raise Exception('Only softmax and sigmoid activations are allowed')
         self.loss_function = [('mask', loss_function, 1.0)]
@@ -300,12 +297,13 @@ def weight_regularization(model, regularize, weight_decay_conv2d):
     return parameter_list
 
 
-def callbacks_unet(callbacks_config):
+def callbacks_network(callbacks_config):
     experiment_timing = cbk.ExperimentTiming(**callbacks_config['experiment_timing'])
     model_checkpoints = cbk.ModelCheckpoint(**callbacks_config['model_checkpoint'])
-    lr_scheduler = cbk.ExponentialLRScheduler(**callbacks_config['lr_scheduler'])
+    lr_scheduler = cbk.ReduceLROnPlateauScheduler(**callbacks_config['reduce_lr_on_plateau_scheduler'])
     training_monitor = cbk.TrainingMonitor(**callbacks_config['training_monitor'])
     validation_monitor = cbk.ValidationMonitor(**callbacks_config['validation_monitor'])
+    # validation_monitor = cbk.ValidationMonitorEmptiness(**callbacks_config['validation_monitor'])
     neptune_monitor = cbk.NeptuneMonitor(**callbacks_config['neptune_monitor'])
     early_stopping = cbk.EarlyStopping(**callbacks_config['early_stopping'])
 
@@ -325,9 +323,9 @@ class DiceLoss(nn.Module):
                 torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
-def lovash_loss(output, target):
-    target = target[:, 1, :, :].long()
-    return lovasz_softmax(output, target)
+def lovasz_loss(output, target):
+    target = target.long()
+    return lovasz_hinge(output, target)
 
 
 def mixed_dice_bce_loss(output, target, dice_weight=0.2, dice_loss=None,

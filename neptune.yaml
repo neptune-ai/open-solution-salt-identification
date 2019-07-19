@@ -5,8 +5,8 @@ tags: [solution-10]
 
 parameters:
   # Data Paths
-  train_images_dir: data/images/train
-  test_images_dir: data/images/test
+  train_images_dir: data/raw/train
+  test_images_dir: data/raw/test
   metadata_filepath: data/meta/metadata.csv
   depths_filepath: data/meta/depths.csv
   auxiliary_metadata_filepath: data/meta/auxiliary_metadata.csv
@@ -16,7 +16,7 @@ parameters:
   overwrite: 0
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-6'
+  kaggle_message: 'solution-10'
   image_source: disk
   pin_memory: 1
   loader_mode: resize_and_pad
@@ -36,7 +36,7 @@ parameters:
   # U-Net parameters
   network_output_channels: 2
   network_activation: 'sigmoid'
-  architecture: ResNetWithDepth
+  architecture: UNetResNet # choose an option from models.ARCHITECTURES for example, EmptinessClassifier
   fine_tuning: 0
 
   # U-Net from scratch parameters

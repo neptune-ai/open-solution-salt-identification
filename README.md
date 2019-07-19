@@ -43,21 +43,33 @@ You can jump start your participation in the competition by using our starter pa
 
 ### Installation 
 1. Clone repository
-1. Install requirements
 
-via pip with python 3.6
+1. Set-up environment
+You can setup the project with default env variables and open `NEPTUNE_API_TOKEN` by running:
 
 ```bash
-pip install -r requirements.txt
+source make_project
 ```
 
-or conda
+I suggest at least reading the step-by-step instructions to know what is happening.
+
+Install conda environment salt
 
 ```bash
 conda env create -f environment.yml
 ```
 
-1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_ even if you don't register you can still
+After it is installed you can activate/deactivate it by running:
+
+```bash
+conda activate salt
+```
+
+```bash
+conda deactivate
+```
+
+Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_ even if you don't register you can still
 see your experiment in Neptune. Just go to [shared/showroom project](https://ui.neptune.ml/o/shared/org/showroom/experiments) and find it.
 1. Setup environment variables.
 
@@ -97,13 +109,20 @@ project
 |--   README.md
 |-- ...
 |-- data
-    |-- images
+    |-- raw
          |-- train 
+            |-- images 
+            |-- masks
          |-- test 
+            |-- images
+         |-- train.csv
+         |-- sample_submission.csv
     |-- meta
         │-- depths.csv
         │-- metadata.csv # this is generated
         │-- auxiliary_metadata.csv # this is generated
+    |-- stacking_data
+        |-- out_of_folds_predictions # put oof predictions for multiple models/pipelines here
     |-- experiments
         |-- baseline # this is where your experiment files will be dumped
             |-- checkpoints # neural network checkpoints
@@ -118,8 +137,8 @@ project
 
 ```yaml
   # Data Paths
-  train_images_dir: data/images/train
-  test_images_dir: data/images/test
+  train_images_dir: data/raw/train
+  test_images_dir: data/raw/test
   metadata_filepath: data/meta/metadata.csv
   depths_filepath: data/meta/depths.csv
   auxiliary_metadata_filepath: data/meta/auxiliary_metadata.csv
@@ -134,7 +153,15 @@ Prepare metadata:
 python prepare_metadata.py
 ```
 
-Training and inference
+Training and inference.
+Everything happens in `main.py`.
+Whenever you try new idea make sure to change the name of the experiment:
+
+```python
+EXPERIMENT_NAME = 'baseline'
+```
+
+to a new name. 
 
 ```bash
 python main.py
