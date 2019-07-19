@@ -41,155 +41,110 @@ In this open source solution you will find references to the [neptune.ml](https:
 ## Start experimenting with ready-to-use code
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
 
-### Installation *(fast track)*
-1. Clone repository and install requirements (*use Python3.5*) `pip3 install -r requirements.txt`
-1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_
+### Installation 
+1. Clone repository
+1. Install requirements
+
+via pip with python 3.6
+
+```bash
+pip install -r requirements.txt
+```
+
+or conda
+
+```bash
+conda env create -f environment.yml
+```
+
+1. Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_ even if you don't register you can still
+see your experiment in Neptune. Just go to [shared/showroom project](https://ui.neptune.ml/o/shared/org/showroom/experiments) and find it.
+1. Setup environment variables.
+
+If you are using the default `neptune.yaml` config then run:
+```bash
+export export CONFIG_PATH=neptune.yaml
+```
+
+otherwise you can change to your config.
+
+**Registered in Neptune**:
+
+Set `NEPTUNE_API_TOKEN` variable with your personal token:
+
+```bash
+export NEPTUNE_API_TOKEN=your_account_token
+```
+
+Create new project in Neptune and go to your config file (`neptune.yaml`) and change `project` name:
+
+```yaml
+project: USER_NAME/PROJECT_NAME
+``` 
+
+**Not registered in Neptune**:
+
+open token
+```bash
+export NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5tbCIsImFwaV9rZXkiOiJiNzA2YmM4Zi03NmY5LTRjMmUtOTM5ZC00YmEwMzZmOTMyZTQifQ==
+```
+
+1. Create data folder structure and set data paths in your config file (`neptune.yaml`)
+Suggested directory structure:
+
+```
+project
+|--   README.md
+|-- ...
+|-- data
+    |-- images
+         |-- train 
+         |-- test 
+    |-- meta
+        │-- depths.csv
+        │-- metadata.csv # this is generated
+        │-- auxiliary_metadata.csv # this is generated
+    |-- experiments
+        |-- baseline # this is where your experiment files will be dumped
+            |-- checkpoints # neural network checkpoints
+            |-- transformers # serialized transformers after fitting
+            |-- outputs # outputs of transformers if you specified save_output=True anywhere
+            |-- out_of_fold_train_predictions.pkl # oof predictions on train
+            |-- out_of_fold_test_predictions.pkl # oof predictions on test
+            |-- submission.csv
+        |-- empty_non_empty 
+        |-- new_idea_exp 
+```
+
+```yaml
+  # Data Paths
+  train_images_dir: data/images/train
+  test_images_dir: data/images/test
+  metadata_filepath: data/meta/metadata.csv
+  depths_filepath: data/meta/depths.csv
+  auxiliary_metadata_filepath: data/meta/auxiliary_metadata.csv
+  stacking_data_dir: data/stacking_data
+```
+
 1. Run experiment based on U-Net:
 
-
-
-#### Cloud
-```bash
-neptune account login
-```
-
-Create project say Salt-Detection (SAL)
-
-Go to `neptune.yaml` and change:
-
-```yaml
-project: USERNAME/PROJECT_NAME
-```
-to your username and project name
-
-Prepare metadata. 
-Change the execution function in the `main.py`:
-
-```python
-if __name__ == '__main__':
-    prepare_metadata()
-```
-It only needs to be **done once**
+Prepare metadata:
 
 ```bash
-neptune send --worker m-p100 \
---environment pytorch-0.3.1-gpu-py3 \
---config neptune.yaml \
-main.py
-
-```
-
-They will be saved in the
-
-```yaml
-  metadata_filepath: /output/metadata.csv
-```
-
-From now on we will load the metadata by changing the `neptune.yaml`
-
-```yaml
-  metadata_filepath: /input/metadata.csv
-```
-
-and adding the path to the experiment that generated metadata say SAL-1 to every command `--input/metadata.csv`
-
-Let's train the model by changing the command in the `main.py` to:
-
-```python
-if __name__ == '__main__':
-    train_evaluate_predict_cv()
-```
-
-and running
-
-```bash
-neptune send --worker m-p100 \
---environment pytorch-0.3.1-gpu-py3 \
---config neptune.yaml \
---input /input/metadata.csv \
-main.py 
-
-```
-
-You could have run it easily with both of those functions executed in the `main.py` :
-
-```python
-if __name__ == '__main__':
-    prepare_metadata()
-    train_evaluate_predict_cv()
-```
-but recalculating metadata every time you run your pipeline doesn't seem like a good idea :).
-
-The model will be saved in the:
-
-```yaml
-  experiment_dir: /output/experiment
-```
-
-and the `submission.csv` will be saved in `/output/experiment/submission.csv`
-
-You can easily use models trained during one experiment in other experiments.
-For example when running evaluation we need to use the previous model folder in our experiment. We do that by:
-
-changing `main.py` 
-
-```python
-  CLONE_EXPERIMENT_DIR_FROM = '/SAL-2/output/experiment'
-```
-
-and
-
-```python
-if __name__ == '__main__':
-    evaluate_predict_cv()
-```
-
-and running the following command:
-
-
-```bash
-neptune send --worker m-p100 \
---environment pytorch-0.3.1-gpu-py3 \
---config neptune.yaml \
---input /input/metadata.csv \
---input /SAL-2 \
-main.py
-```
-
-#### Local
-Login to neptune if you want to use it
-```bash
-neptune account login
-```
-
-Prepare metadata
-Change `main.py':
-```python
-if __name__ == '__main__':
-    prepare_metadata()
-```
-
-run
-
-```bash
-neptune run --config neptune.yaml main.py prepare_metadata
+python prepare_metadata.py
 ```
 
 Training and inference
-Change `main.py':
+
+```bash
+python main.py
+```
+
+You can always change the pipeline you want ot run in the main.
+For example, if I want to run just training and evaluation I can change  `main.py':
 ```python
 if __name__ == '__main__':
-    train_evaluate_predict_cv()
-```
-
-```bash
-neptune run --config neptune.yaml main.py
-```
-
-You can always run it with pure python :snake:
-
-```bash
-python main.py 
+    train_evaluate_cv()
 ```
 
 ## References

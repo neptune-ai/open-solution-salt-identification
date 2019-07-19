@@ -333,7 +333,6 @@ class NeptuneMonitor(Callback):
     def __init__(self, image_nr, image_resize, image_every, model_name, use_depth):
         super().__init__()
         self.model_name = model_name
-        self.ctx = neptune.Context()
         self.epoch_loss_averager = Averager()
         self.image_resize = image_resize
         self.image_every = image_every
@@ -355,7 +354,7 @@ class NeptuneMonitor(Callback):
                 self.epoch_loss_averagers[name] = Averager()
                 self.epoch_loss_averagers[name].send(loss)
 
-            self.ctx.channel_send('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
+            neptune.send_metric('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
 
         self.batch_id += 1
 
@@ -369,14 +368,14 @@ class NeptuneMonitor(Callback):
         for name, averager in self.epoch_loss_averagers.items():
             epoch_avg_loss = averager.value
             averager.reset()
-            self.ctx.channel_send('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id, y=epoch_avg_loss)
+            neptune.send_metric.channel_send('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id, y=epoch_avg_loss)
 
         self.model.eval()
         val_loss = self.get_validation_loss()
         self.model.train()
         for name, loss in val_loss.items():
             loss = loss.data.cpu().numpy()[0]
-            self.ctx.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
+            neptune.send_metric.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
 
     def _send_image_channels(self):
         self.model.eval()
@@ -398,10 +397,7 @@ class NeptuneMonitor(Callback):
             pill_image = pill_image.resize((int(self.image_resize * w_), int(self.image_resize * h_)),
                                            Image.ANTIALIAS)
 
-            self.ctx.channel_send('{} predictions'.format(self.model_name), neptune.Image(
-                name='epoch{}_batch{}_idx{}'.format(self.epoch_id, self.batch_id, i),
-                description="image, prediction, ground truth",
-                data=pill_image))
+            neptune.send_image('{} predictions'.format(self.model_name), pill_image)
 
     def _get_image_triplets(self):
         image_triplets = []

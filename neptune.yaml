@@ -1,33 +1,16 @@
-project: USERNAME/PROJECT_NAME
+project: shared/showroom
 
 name: tgs_salt_identification_challenge
-tags: [solution-6]
-
-metric:
-  channel: 'IOUT'
-  goal: maximize
-
-#Comment out if not in Cloud Environment
-pip-requirements-file: requirements.txt
-
-exclude:
-- .git
-- .idea
-- .ipynb_checkpoints
-- output
-- imgs
-- neptune.log
-- offline_job.log
-- notebooks
+tags: [solution-10]
 
 parameters:
   # Data Paths
-  train_images_dir: /public/challenges/kaggle-salt-identification/train
-  test_images_dir: /public/challenges/kaggle-salt-identification/test
-  metadata_filepath: /output/metadata.csv
-  depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
-  auxiliary_metadata_filepath: /output/auxiliary_metadata.csv
-  stacking_data_dir: /output/stacking_data
+  train_images_dir: data/images/train
+  test_images_dir: data/images/test
+  metadata_filepath: data/meta/metadata.csv
+  depths_filepath: data/meta/depths.csv
+  auxiliary_metadata_filepath: data/meta/auxiliary_metadata.csv
+  stacking_data_dir: data/stacking_data
 
   # Execution
   overwrite: 0

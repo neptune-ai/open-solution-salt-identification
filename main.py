@@ -18,8 +18,11 @@ from common_blocks import pipelines
 from common_blocks import utils
 from common_blocks import postprocessing
 
-CTX = neptune.Context()
+utils.check_env_vars()
+CONFIG = utils.read_config(config_path=os.getenv('CONFIG_PATH'))
 LOGGER = utils.init_logger()
+
+neptune.init(project_qualified_name=CONFIG.project)
 
 #    ______   ______   .__   __.  _______  __    _______      _______.
 #   /      | /  __  \  |  \ |  | |   ____||  |  /  _____|    /       |
@@ -29,7 +32,7 @@ LOGGER = utils.init_logger()
 #   \______| \______/  |__| \__| |__|     |__|  \______| |_______/
 #
 
-EXPERIMENT_DIR = '/output/experiment'
+EXPERIMENT_DIR = 'data/experiments/baseline'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
 OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
@@ -44,10 +47,7 @@ if CLONE_EXPERIMENT_DIR_FROM != '':
         shutil.rmtree(EXPERIMENT_DIR)
     shutil.copytree(CLONE_EXPERIMENT_DIR_FROM, EXPERIMENT_DIR)
 
-if CTX.params.__class__.__name__ == 'OfflineContextParams':
-    PARAMS = utils.read_yaml().parameters
-else:
-    PARAMS = CTX.params
+PARAMS = CONFIG.parameters
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -512,9 +512,9 @@ def evaluate():
     LOGGER.info('Calculating IOU and IOUT Scores')
     iou_score, iout_score = calculate_scores(y_true_valid, y_pred_valid)
     LOGGER.info('IOU score on validation is {}'.format(iou_score))
-    CTX.channel_send('IOU', 0, iou_score)
+    neptune.send_metric('IOU', iou_score)
     LOGGER.info('IOUT score on validation is {}'.format(iout_score))
-    CTX.channel_send('IOUT', 0, iout_score)
+    neptune.send_metric('IOUT', iout_score)
 
     results_filepath = os.path.join(EXPERIMENT_DIR, 'validation_results.pkl')
     LOGGER.info('Saving validation results to {}'.format(results_filepath))
@@ -575,9 +575,9 @@ def train_evaluate_cv():
         LOGGER.info('Started fold {}'.format(fold_id))
         iou, iout, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
         LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
         LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
         fold_iou.append(iou)
         fold_iout.append(iout)
@@ -614,9 +614,9 @@ def train_evaluate_predict_cv():
                                                                                             fold_id)
 
         LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
         LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
         fold_iou.append(iou)
         fold_iout.append(iout)
@@ -652,9 +652,9 @@ def evaluate_cv():
         LOGGER.info('Started fold {}'.format(fold_id))
         iou, iout, _ = fold_evaluate_loop(valid_data_split, fold_id)
         LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
         LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
         fold_iou.append(iou)
         fold_iout.append(iout)
@@ -685,9 +685,9 @@ def evaluate_predict_cv():
                                                                                         fold_id)
 
         LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
+        neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
         LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
         fold_iou.append(iou)
         fold_iout.append(iout)

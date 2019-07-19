@@ -211,6 +211,84 @@ class SegmentationModel(Model):
         return self
 
 
+class SegmentationModelWithDepth(SegmentationModel):
+    def __init__(self, architecture_config, training_config, callbacks_config):
+        super().__init__(architecture_config, training_config, callbacks_config)
+        self.activation_func = self.architecture_config['model_params']['activation']
+        self.set_model()
+        self.set_loss()
+        self.weight_regularization = weight_regularization
+        self.optimizer = optim.Adam(self.weight_regularization(self.model, **architecture_config['regularizer_params']),
+                                    **architecture_config['optimizer_params'])
+        self.callbacks = callbacks_network(self.callbacks_config)
+
+    def _fit_loop(self, data):
+        X = data[0]
+        D = data[1]
+        targets_tensors = data[2:]
+
+        if torch.cuda.is_available():
+            X = Variable(X).cuda()
+            D = Variable(D).cuda()
+            targets_var = []
+            for target_tensor in targets_tensors:
+                targets_var.append(Variable(target_tensor).cuda())
+        else:
+            X = Variable(X)
+            D = Variable(D)
+            targets_var = []
+            for target_tensor in targets_tensors:
+                targets_var.append(Variable(target_tensor))
+
+        self.optimizer.zero_grad()
+        outputs_batch = self.model(X, D)
+        partial_batch_losses = {}
+
+        if len(self.output_names) == 1:
+            for (name, loss_function, weight), target in zip(self.loss_function, targets_var):
+                batch_loss = loss_function(outputs_batch, target) * weight
+        else:
+            for (name, loss_function, weight), output, target in zip(self.loss_function, outputs_batch, targets_var):
+                partial_batch_losses[name] = loss_function(output, target) * weight
+            batch_loss = sum(partial_batch_losses.values())
+        partial_batch_losses['sum'] = batch_loss
+
+        batch_loss.backward()
+        self.optimizer.step()
+
+        return partial_batch_losses
+
+    def _transform(self, datagen, validation_datagen=None, **kwargs):
+        self.model.eval()
+
+        batch_gen, steps = datagen
+        outputs = {}
+        for batch_id, data in enumerate(batch_gen):
+            X = data[0]
+            D = data[1]
+
+            if torch.cuda.is_available():
+                X = Variable(X, volatile=True).cuda()
+                D = Variable(D, volatile=True).cuda()
+            else:
+                X = Variable(X, volatile=True)
+                D = Variable(D, volatile=True)
+            outputs_batch = self.model(X, D)
+
+            if len(self.output_names) == 1:
+                outputs.setdefault(self.output_names[0], []).append(outputs_batch.data.cpu().numpy())
+            else:
+                for name, output in zip(self.output_names, outputs_batch):
+                    output_ = output.data.cpu().numpy()
+                    outputs.setdefault(name, []).append(output_)
+            if batch_id == steps:
+                break
+        self.model.train()
+        outputs = {'{}_prediction'.format(name): get_list_of_image_predictions(outputs_) for name, outputs_ in
+                   outputs.items()}
+        return outputs
+
+
 def weight_regularization(model, regularize, weight_decay_conv2d):
     if regularize:
         parameter_list = [

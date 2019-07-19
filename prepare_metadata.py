@@ -1,10 +1,9 @@
 import os
 
-import neptune
-
 from common_blocks import utils
 
-CTX = neptune.Context()
+utils.check_env_vars()
+CONFIG = utils.read_config(config_path=os.getenv('CONFIG_PATH'))
 LOGGER = utils.init_logger()
 
 #    ______   ______   .__   __.  _______  __    _______      _______.
@@ -15,10 +14,8 @@ LOGGER = utils.init_logger()
 #   \______| \______/  |__| \__| |__|     |__|  \______| |_______/
 #
 
-if CTX.params.__class__.__name__ == 'OfflineContextParams':
-    PARAMS = utils.read_yaml().parameters
-else:
-    PARAMS = CTX.params
+PARAMS = CONFIG.parameters
+
 
 #   __________   ___  _______   ______  __    __  .___________. __    ______   .__   __.
 #  |   ____\  \ /  / |   ____| /      ||  |  |  | |           ||  |  /  __  \  |  \ |  |
@@ -65,4 +62,4 @@ def prepare_metadata():
 
 if __name__ == '__main__':
     prepare_metadata()
-    prepare_stacking_data()
+    # prepare_stacking_data()

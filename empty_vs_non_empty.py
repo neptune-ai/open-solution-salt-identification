@@ -12,15 +12,16 @@ from steppy.base import Step, IdentityOperation
 from steppy.adapter import Adapter, E
 
 from common_blocks import augmentation as aug
-from common_blocks import metrics
 from common_blocks import models
 from common_blocks import loaders
-from common_blocks import pipelines
 from common_blocks import utils
 from common_blocks import postprocessing
 
-CTX = neptune.Context()
+utils.check_env_vars()
+CONFIG = utils.read_config(config_path=os.getenv('CONFIG_PATH'))
 LOGGER = utils.init_logger()
+
+neptune.init(project_qualified_name=CONFIG.project)
 
 #    ______   ______   .__   __.  _______  __    _______      _______.
 #   /      | /  __  \  |  \ |  | |   ____||  |  /  _____|    /       |
@@ -30,7 +31,7 @@ LOGGER = utils.init_logger()
 #   \______| \______/  |__| \__| |__|     |__|  \______| |_______/
 #
 
-EXPERIMENT_DIR = '/output/experiment'
+EXPERIMENT_DIR = 'data/experiments/empty_non_empty'
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
 OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
@@ -45,10 +46,7 @@ if CLONE_EXPERIMENT_DIR_FROM != '':
         shutil.rmtree(EXPERIMENT_DIR)
     shutil.copytree(CLONE_EXPERIMENT_DIR_FROM, EXPERIMENT_DIR)
 
-if CTX.params.__class__.__name__ == 'OfflineContextParams':
-    PARAMS = utils.read_yaml().parameters
-else:
-    PARAMS = CTX.params
+PARAMS = CONFIG.parameters
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -426,7 +424,7 @@ def train_evaluate_cv():
         LOGGER.info('Started fold {}'.format(fold_id))
         auc, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
         LOGGER.info('Fold {} AUC {}'.format(fold_id, AUC))
-        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, AUC)
+        neptune.send_metric('Fold {} AUC'.format(fold_id), AUC)
 
         fold_auc.append(AUC)
 
@@ -460,7 +458,7 @@ def train_evaluate_predict_cv():
                                                                                       fold_id)
 
         LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
-        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, auc)
+        neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
         fold_auc.append(auc)
         out_of_fold_train_predictions.append(out_of_fold_prediction)
@@ -492,7 +490,7 @@ def evaluate_cv():
         LOGGER.info('Started fold {}'.format(fold_id))
         auc, _ = fold_evaluate_loop(valid_data_split, fold_id)
         LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
-        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, auc)
+        neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
         fold_auc.append(auc)
 
@@ -520,7 +518,7 @@ def evaluate_predict_cv():
                                                                                   fold_id)
 
         LOGGER.info('Fold {} AUC {}'.format(fold_id, auc))
-        CTX.channel_send('Fold {} AUC'.format(fold_id), 0, auc)
+        neptune.send_metric('Fold {} AUC'.format(fold_id), auc)
 
         fold_auc.append(auc)
         out_of_fold_train_predictions.append(out_of_fold_prediction)
@@ -654,8 +652,8 @@ def add_fold_id_suffix(config, fold_id):
 
 def log_scores(auc_mean, auc_std):
     LOGGER.info('AUC mean {}, AUC std {}'.format(auc_mean, auc_std))
-    CTX.channel_send('AUC', 0, auc_mean)
-    CTX.channel_send('AUC STD', 0, auc_std)
+    neptune.send_metric('AUC', auc_mean)
+    neptune.send_metric('AUC STD', auc_std)
 
 
 def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions):
