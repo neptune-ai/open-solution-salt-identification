@@ -49,7 +49,7 @@ You can jump start your participation in the competition by using our starter pa
 You can setup the project with default env variables and open `NEPTUNE_API_TOKEN` by running:
 
 ```bash
-source make_project
+source Makefile
 ```
 
 I suggest at least reading the step-by-step instructions to know what is happening.
