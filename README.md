@@ -43,7 +43,9 @@ You can jump start your participation in the competition by using our starter pa
 
 ### Installation 
 #### Clone repository
-
+```bash
+git clone https://github.com/minerva-ml/open-solution-salt-identification.git
+```
 #### Set-up environment
 
 You can setup the project with default env variables and open `NEPTUNE_API_TOKEN` by running:
