@@ -137,6 +137,8 @@ project
         |-- new_idea_exp 
 ```
 
+in `neptune.yaml` config file change data paths if you decide on a different structure:
+
 ```yaml
   # Data Paths
   train_images_dir: data/raw/train
