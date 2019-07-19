@@ -42,9 +42,10 @@ In this open source solution you will find references to the [neptune.ml](https:
 You can jump start your participation in the competition by using our starter pack. Installation instruction below will guide you through the setup.
 
 ### Installation 
-1. Clone repository
+#### Clone repository
 
-1. Set-up environment
+#### Set-up environment
+
 You can setup the project with default env variables and open `NEPTUNE_API_TOKEN` by running:
 
 ```bash
@@ -71,7 +72,8 @@ conda deactivate
 
 Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_ even if you don't register you can still
 see your experiment in Neptune. Just go to [shared/showroom project](https://ui.neptune.ml/o/shared/org/showroom/experiments) and find it.
-1. Setup environment variables.
+
+Set environment variables `NEPTUNE_API_TOKEN` and `CONFIG_PATH`.
 
 If you are using the default `neptune.yaml` config then run:
 ```bash
@@ -101,7 +103,7 @@ open token
 export NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5tbCIsImFwaV9rZXkiOiJiNzA2YmM4Zi03NmY5LTRjMmUtOTM5ZC00YmEwMzZmOTMyZTQifQ==
 ```
 
-1. Create data folder structure and set data paths in your config file (`neptune.yaml`)
+#### Create data folder structure and set data paths in your config file (`neptune.yaml`)
 Suggested directory structure:
 
 ```
@@ -145,7 +147,7 @@ project
   stacking_data_dir: data/stacking_data
 ```
 
-1. Run experiment based on U-Net:
+### Run experiment based on U-Net:
 
 Prepare metadata:
 
