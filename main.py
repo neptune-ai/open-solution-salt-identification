@@ -4,6 +4,7 @@ import shutil
 
 from attrdict import AttrDict
 import neptune
+from neptunecontrib.api.utils import get_filepaths
 import numpy as np
 import pandas as pd
 from sklearn.externals import joblib
@@ -18,8 +19,11 @@ from common_blocks import pipelines
 from common_blocks import utils
 from common_blocks import postprocessing
 
-CTX = neptune.Context()
+utils.check_env_vars()
+CONFIG = utils.read_config(config_path=os.getenv('CONFIG_PATH'))
 LOGGER = utils.init_logger()
+
+neptune.init(project_qualified_name=CONFIG.project)
 
 #    ______   ______   .__   __.  _______  __    _______      _______.
 #   /      | /  __  \  |  \ |  | |   ____||  |  /  _____|    /       |
@@ -29,13 +33,15 @@ LOGGER = utils.init_logger()
 #   \______| \______/  |__| \__| |__|     |__|  \______| |_______/
 #
 
-EXPERIMENT_DIR = '/output/experiment'
+EXPERIMENT_NAME = 'baseline'
+EXPERIMENT_DIR = 'data/experiments/{}'.format(EXPERIMENT_NAME)
 CLONE_EXPERIMENT_DIR_FROM = ''  # When running eval in the cloud specify this as for example /input/SAL-14/output/experiment
 OVERWRITE_EXPERIMENT_DIR = False
 DEV_MODE = False
-SECOND_LEVEL = True
-USE_DEPTH = True
+SECOND_LEVEL = False
+USE_DEPTH = False
 USE_AUXILIARY_DATA = False
+TAGS = ['first-level', 'training']
 
 if OVERWRITE_EXPERIMENT_DIR and os.path.isdir(EXPERIMENT_DIR):
     shutil.rmtree(EXPERIMENT_DIR)
@@ -44,10 +50,7 @@ if CLONE_EXPERIMENT_DIR_FROM != '':
         shutil.rmtree(EXPERIMENT_DIR)
     shutil.copytree(CLONE_EXPERIMENT_DIR_FROM, EXPERIMENT_DIR)
 
-if CTX.params.__class__.__name__ == 'OfflineContextParams':
-    PARAMS = utils.read_yaml().parameters
-else:
-    PARAMS = CTX.params
+PARAMS = CONFIG.parameters
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -467,16 +470,22 @@ def train():
         meta_train_split = meta_train_split.sample(PARAMS.dev_mode_size, random_state=SEED)
         meta_valid_split = meta_valid_split.sample(int(PARAMS.dev_mode_size / 2), random_state=SEED)
 
-    data = {'input': {'meta': meta_train_split
-                      },
-            'callback_input': {'meta_valid': meta_valid_split
-                               }
-            }
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['train'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    pipeline_network = network(config=CONFIG, train_mode=True)
-    pipeline_network.clean_cache()
-    pipeline_network.fit_transform(data)
-    pipeline_network.clean_cache()
+        data = {'input': {'meta': meta_train_split
+                          },
+                'callback_input': {'meta_valid': meta_valid_split
+                                   }
+                }
+
+        pipeline_network = network(config=CONFIG, train_mode=True)
+        pipeline_network.clean_cache()
+        pipeline_network.fit_transform(data)
+        pipeline_network.clean_cache()
 
 
 def evaluate():
@@ -498,27 +507,34 @@ def evaluate():
             'callback_input': {'meta_valid': None
                                }
             }
-    pipeline_network = network(config=CONFIG, train_mode=False)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
-    pipeline_network.clean_cache()
-    output = pipeline_network.transform(data)
-    valid_masks = {'input_masks': output
-                   }
-    output = pipeline_postprocessing.transform(valid_masks)
-    pipeline_network.clean_cache()
-    pipeline_postprocessing.clean_cache()
-    y_pred_valid = output['binarized_images']
 
-    LOGGER.info('Calculating IOU and IOUT Scores')
-    iou_score, iout_score = calculate_scores(y_true_valid, y_pred_valid)
-    LOGGER.info('IOU score on validation is {}'.format(iou_score))
-    CTX.channel_send('IOU', 0, iou_score)
-    LOGGER.info('IOUT score on validation is {}'.format(iout_score))
-    CTX.channel_send('IOUT', 0, iout_score)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['evaluate'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    results_filepath = os.path.join(EXPERIMENT_DIR, 'validation_results.pkl')
-    LOGGER.info('Saving validation results to {}'.format(results_filepath))
-    joblib.dump((meta_valid_split, y_true_valid, y_pred_valid), results_filepath)
+        pipeline_network = network(config=CONFIG, train_mode=False)
+        pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
+        pipeline_network.clean_cache()
+        output = pipeline_network.transform(data)
+        valid_masks = {'input_masks': output
+                       }
+        output = pipeline_postprocessing.transform(valid_masks)
+        pipeline_network.clean_cache()
+        pipeline_postprocessing.clean_cache()
+        y_pred_valid = output['binarized_images']
+
+        LOGGER.info('Calculating IOU and IOUT Scores')
+        iou_score, iout_score = calculate_scores(y_true_valid, y_pred_valid)
+        LOGGER.info('IOU score on validation is {}'.format(iou_score))
+        neptune.send_metric('IOU', iou_score)
+        LOGGER.info('IOUT score on validation is {}'.format(iout_score))
+        neptune.send_metric('IOUT', iout_score)
+
+        results_filepath = os.path.join(EXPERIMENT_DIR, 'validation_results.pkl')
+        LOGGER.info('Saving validation results to {}'.format(results_filepath))
+        joblib.dump((meta_valid_split, y_true_valid, y_pred_valid), results_filepath)
 
 
 def predict():
@@ -534,24 +550,29 @@ def predict():
                                }
             }
 
-    pipeline_network = network(config=CONFIG, train_mode=False)
-    pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
-    pipeline_network.clean_cache()
-    predicted_masks = pipeline_network.transform(data)
-    test_masks = {'input_masks': predicted_masks
-                  }
-    output = pipeline_postprocessing.transform(test_masks)
-    pipeline_network.clean_cache()
-    pipeline_postprocessing.clean_cache()
-    y_pred_test = output['binarized_images']
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['predict'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
+        pipeline_network = network(config=CONFIG, train_mode=False)
+        pipeline_postprocessing = pipelines.mask_postprocessing(config=CONFIG)
+        pipeline_network.clean_cache()
+        predicted_masks = pipeline_network.transform(data)
+        test_masks = {'input_masks': predicted_masks
+                      }
+        output = pipeline_postprocessing.transform(test_masks)
+        pipeline_network.clean_cache()
+        pipeline_postprocessing.clean_cache()
+        y_pred_test = output['binarized_images']
 
-    submission = utils.create_submission(meta_test, y_pred_test)
+        submission = utils.create_submission(meta_test, y_pred_test)
 
-    submission_filepath = os.path.join(EXPERIMENT_DIR, 'submission.csv')
+        submission_filepath = os.path.join(EXPERIMENT_DIR, 'submission.csv')
 
-    submission.to_csv(submission_filepath, index=None, encoding='utf-8')
-    LOGGER.info('submission saved to {}'.format(submission_filepath))
-    LOGGER.info('submission head \n\n{}'.format(submission.head()))
+        submission.to_csv(submission_filepath, index=None, encoding='utf-8')
+        LOGGER.info('submission saved to {}'.format(submission_filepath))
+        LOGGER.info('submission head \n\n{}'.format(submission.head()))
 
 
 def train_evaluate_cv():
@@ -561,31 +582,36 @@ def train_evaluate_cv():
 
     meta_train = meta[meta['is_train'] == 1]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['train', 'evaluate', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-    fold_iou, fold_iout = [], []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
+        fold_iou, fold_iout = [], []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
-        if USE_AUXILIARY_DATA:
-            auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
-            train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
-            train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
+            if USE_AUXILIARY_DATA:
+                auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
+                train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
+                train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            iou, iout, _ = fold_fit_evaluate_loop(train_data_split, valid_data_split, fold_id)
+            LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+            neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
+            LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+            neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
+            fold_iou.append(iou)
+            fold_iout.append(iout)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+        iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+        iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
 
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+        log_scores(iou_mean, iou_std, iout_mean, iout_std)
 
 
 def train_evaluate_predict_cv():
@@ -596,44 +622,50 @@ def train_evaluate_predict_cv():
     meta_train = meta[meta['is_train'] == 1]
     meta_test = meta[meta['is_train'] == 0]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['train', 'evaluate', 'predict', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        if USE_AUXILIARY_DATA:
-            auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
-            train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
-            train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
+        fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            train_data_split, valid_data_split = meta_train.iloc[train_idx], meta_train.iloc[valid_idx]
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
-                                                                                            valid_data_split,
-                                                                                            meta_test,
-                                                                                            fold_id)
+            if USE_AUXILIARY_DATA:
+                auxiliary = pd.read_csv(PARAMS.auxiliary_metadata_filepath)
+                train_auxiliary = auxiliary[auxiliary[ID_COLUMN].isin(valid_data_split[ID_COLUMN].tolist())]
+                train_data_split = pd.concat([train_data_split, train_auxiliary], axis=0)
 
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            iou, iout, out_of_fold_prediction, test_prediction = fold_fit_evaluate_predict_loop(train_data_split,
+                                                                                                valid_data_split,
+                                                                                                meta_test,
+                                                                                                fold_id)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
-        out_of_fold_train_predictions.append(out_of_fold_prediction)
-        out_of_fold_test_predictions.append(test_prediction)
+            LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+            neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
+            LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+            neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
-    train_ids, train_predictions = [], []
-    for idx_fold, train_pred_fold in out_of_fold_train_predictions:
-        train_ids.extend(idx_fold)
-        train_predictions.extend(train_pred_fold)
+            fold_iou.append(iou)
+            fold_iout.append(iout)
+            out_of_fold_train_predictions.append(out_of_fold_prediction)
+            out_of_fold_test_predictions.append(test_prediction)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+        train_ids, train_predictions = [], []
+        for idx_fold, train_pred_fold in out_of_fold_train_predictions:
+            train_ids.extend(idx_fold)
+            train_predictions.extend(train_pred_fold)
 
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+        iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+        iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
 
-    save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
+        log_scores(iou_mean, iou_std, iout_mean, iout_std)
+
+        save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
 
 
 def evaluate_cv():
@@ -643,26 +675,32 @@ def evaluate_cv():
 
     meta_train = meta[meta['is_train'] == 1]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['evaluate', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_iou, fold_iout = [], []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        valid_data_split = meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, _ = fold_evaluate_loop(valid_data_split, fold_id)
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+        fold_iou, fold_iout = [], []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            valid_data_split = meta_train.iloc[valid_idx]
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            iou, iout, _ = fold_evaluate_loop(valid_data_split, fold_id)
+            LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+            neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
+            LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+            neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+            fold_iou.append(iou)
+            fold_iout.append(iout)
 
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
+        iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+        iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+
+        log_scores(iou_mean, iou_std, iout_mean, iout_std)
 
 
 def evaluate_predict_cv():
@@ -673,37 +711,43 @@ def evaluate_predict_cv():
     meta_train = meta[meta['is_train'] == 1]
     meta_test = meta[meta['is_train'] == 0]
 
-    cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
+    with neptune.create_experiment(name=EXPERIMENT_NAME,
+                                   params=PARAMS,
+                                   tags=TAGS + ['evaluate', 'predict', 'on_cv_folds'],
+                                   upload_source_files=get_filepaths(),
+                                   properties={'experiment_dir': EXPERIMENT_DIR}):
 
-    fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
-    for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
-        valid_data_split = meta_train.iloc[valid_idx]
+        cv = utils.KFoldBySortedValue(n_splits=PARAMS.n_cv_splits, shuffle=PARAMS.shuffle, random_state=SEED)
 
-        LOGGER.info('Started fold {}'.format(fold_id))
-        iou, iout, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
-                                                                                        meta_test,
-                                                                                        fold_id)
+        fold_iou, fold_iout, out_of_fold_train_predictions, out_of_fold_test_predictions = [], [], [], []
+        for fold_id, (train_idx, valid_idx) in enumerate(cv.split(meta_train[DEPTH_COLUMN].values.reshape(-1))):
+            valid_data_split = meta_train.iloc[valid_idx]
 
-        LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
-        CTX.channel_send('Fold {} IOU'.format(fold_id), 0, iou)
-        LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
-        CTX.channel_send('Fold {} IOUT'.format(fold_id), 0, iout)
+            LOGGER.info('Started fold {}'.format(fold_id))
+            iou, iout, out_of_fold_prediction, test_prediction = fold_evaluate_predict_loop(valid_data_split,
+                                                                                            meta_test,
+                                                                                            fold_id)
 
-        fold_iou.append(iou)
-        fold_iout.append(iout)
-        out_of_fold_train_predictions.append(out_of_fold_prediction)
-        out_of_fold_test_predictions.append(test_prediction)
+            LOGGER.info('Fold {} IOU {}'.format(fold_id, iou))
+            neptune.send_metric('Fold {} IOU'.format(fold_id), iou)
+            LOGGER.info('Fold {} IOUT {}'.format(fold_id, iout))
+            neptune.send_metric('Fold {} IOUT'.format(fold_id), iout)
 
-    train_ids, train_predictions = [], []
-    for idx_fold, train_pred_fold in out_of_fold_train_predictions:
-        train_ids.extend(idx_fold)
-        train_predictions.extend(train_pred_fold)
+            fold_iou.append(iou)
+            fold_iout.append(iout)
+            out_of_fold_train_predictions.append(out_of_fold_prediction)
+            out_of_fold_test_predictions.append(test_prediction)
 
-    iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
-    iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+        train_ids, train_predictions = [], []
+        for idx_fold, train_pred_fold in out_of_fold_train_predictions:
+            train_ids.extend(idx_fold)
+            train_predictions.extend(train_pred_fold)
 
-    log_scores(iou_mean, iou_std, iout_mean, iout_std)
-    save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
+        iou_mean, iou_std = np.mean(fold_iou), np.std(fold_iou)
+        iout_mean, iout_std = np.mean(fold_iout), np.std(fold_iout)
+
+        log_scores(iou_mean, iou_std, iout_mean, iout_std)
+        save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions)
 
 
 def fold_fit_evaluate_predict_loop(train_data_split, valid_data_split, test, fold_id):
@@ -837,12 +881,12 @@ def add_fold_id_suffix(config, fold_id):
 
 def log_scores(iou_mean, iou_std, iout_mean, iout_std):
     LOGGER.info('IOU mean {}, IOU std {}'.format(iou_mean, iou_std))
-    CTX.channel_send('IOU', 0, iou_mean)
-    CTX.channel_send('IOU STD', 0, iou_std)
+    neptune.send_metric('IOU', iou_mean)
+    neptune.send_metric('IOU STD', iou_std)
 
     LOGGER.info('IOUT mean {}, IOUT std {}'.format(iout_mean, iout_std))
-    CTX.channel_send('IOUT', 0, iout_mean)
-    CTX.channel_send('IOUT STD', 0, iout_std)
+    neptune.send_metric('IOUT', iout_mean)
+    neptune.send_metric('IOUT STD', iout_std)
 
 
 def save_predictions(train_ids, train_predictions, meta_test, out_of_fold_test_predictions):

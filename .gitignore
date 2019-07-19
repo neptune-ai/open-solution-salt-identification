@@ -21,6 +21,7 @@ output/
 target/
 devbook.ipynb
 devbook_local.ipynb
+data/
 
 # Distribution / packaging
 .Python

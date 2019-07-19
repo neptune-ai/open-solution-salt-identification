@@ -204,8 +204,6 @@ class ExponentialLRScheduler(Callback):
 class ReduceLROnPlateauScheduler(Callback):
     def __init__(self, metric_name, minimize, reduce_factor, reduce_patience, min_lr):
         super().__init__()
-        self.ctx = neptune.Context()
-        self.ctx.channel_reset('Learning Rate')
         self.metric_name = metric_name
         self.minimize = minimize
         self.reduce_factor = reduce_factor
@@ -238,8 +236,7 @@ class ReduceLROnPlateauScheduler(Callback):
         self.lr_scheduler.step(metrics=metric, epoch=self.epoch_id)
         logger.info('epoch {0} current lr: {1}'.format(self.epoch_id + 1,
                                                        self.optimizer.state_dict()['param_groups'][0]['lr']))
-        self.ctx.channel_send('Learning Rate', x=self.epoch_id,
-                              y=self.optimizer.state_dict()['param_groups'][0]['lr'])
+        neptune.send_metric('Learning Rate', x=self.epoch_id, y=self.optimizer.state_dict()['param_groups'][0]['lr'])
 
         self.epoch_id += 1
 
@@ -247,8 +244,6 @@ class ReduceLROnPlateauScheduler(Callback):
 class InitialLearningRateFinder(Callback):
     def __init__(self, min_lr=1e-8, multipy_factor=1.05, add_factor=0.0):
         super().__init__()
-        self.ctx = neptune.Context()
-        self.ctx.channel_reset('Learning Rate Finder')
         self.min_lr = min_lr
         self.multipy_factor = multipy_factor
         self.add_factor = add_factor
@@ -272,8 +267,8 @@ class InitialLearningRateFinder(Callback):
             loss = loss.data.cpu().numpy()[0]
         current_lr = self.optimizer.state_dict()['param_groups'][0]['lr']
         logger.info('Learning Rate {} Loss {})'.format(current_lr, loss))
-        self.ctx.channel_send('Learning Rate Finder', x=self.batch_id, y=current_lr)
-        self.ctx.channel_send('Loss', x=self.batch_id, y=loss)
+        neptune.send_metric('Learning Rate Finder', x=self.batch_id, y=current_lr)
+        neptune.send_metric('Loss', x=self.batch_id, y=loss)
 
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = current_lr * self.multipy_factor + self.add_factor
@@ -333,7 +328,6 @@ class NeptuneMonitor(Callback):
     def __init__(self, image_nr, image_resize, image_every, model_name, use_depth):
         super().__init__()
         self.model_name = model_name
-        self.ctx = neptune.Context()
         self.epoch_loss_averager = Averager()
         self.image_resize = image_resize
         self.image_every = image_every
@@ -355,7 +349,7 @@ class NeptuneMonitor(Callback):
                 self.epoch_loss_averagers[name] = Averager()
                 self.epoch_loss_averagers[name].send(loss)
 
-            self.ctx.channel_send('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
+            neptune.send_metric('{} batch {} loss'.format(self.model_name, name), x=self.batch_id, y=loss)
 
         self.batch_id += 1
 
@@ -369,14 +363,16 @@ class NeptuneMonitor(Callback):
         for name, averager in self.epoch_loss_averagers.items():
             epoch_avg_loss = averager.value
             averager.reset()
-            self.ctx.channel_send('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id, y=epoch_avg_loss)
+            neptune.send_metric('{} epoch {} loss'.format(self.model_name, name), x=self.epoch_id,
+                                             y=epoch_avg_loss)
 
         self.model.eval()
         val_loss = self.get_validation_loss()
         self.model.train()
         for name, loss in val_loss.items():
             loss = loss.data.cpu().numpy()[0]
-            self.ctx.channel_send('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id, y=loss)
+            neptune.send_metric('{} epoch_val {} loss'.format(self.model_name, name), x=self.epoch_id,
+                                             y=loss)
 
     def _send_image_channels(self):
         self.model.eval()
@@ -398,10 +394,7 @@ class NeptuneMonitor(Callback):
             pill_image = pill_image.resize((int(self.image_resize * w_), int(self.image_resize * h_)),
                                            Image.ANTIALIAS)
 
-            self.ctx.channel_send('{} predictions'.format(self.model_name), neptune.Image(
-                name='epoch{}_batch{}_idx{}'.format(self.epoch_id, self.batch_id, i),
-                description="image, prediction, ground truth",
-                data=pill_image))
+            neptune.send_image('{} predictions'.format(self.model_name), pill_image)
 
     def _get_image_triplets(self):
         image_triplets = []

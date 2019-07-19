@@ -1,39 +1,22 @@
-project: USERNAME/PROJECT_NAME
+project: shared/showroom
 
 name: tgs_salt_identification_challenge
-tags: [solution-6]
-
-metric:
-  channel: 'IOUT'
-  goal: maximize
-
-#Comment out if not in Cloud Environment
-pip-requirements-file: requirements.txt
-
-exclude:
-- .git
-- .idea
-- .ipynb_checkpoints
-- output
-- imgs
-- neptune.log
-- offline_job.log
-- notebooks
+tags: [solution-10]
 
 parameters:
   # Data Paths
-  train_images_dir: /public/challenges/kaggle-salt-identification/train
-  test_images_dir: /public/challenges/kaggle-salt-identification/test
-  metadata_filepath: /output/metadata.csv
-  depths_filepath: /public/challenges/kaggle-salt-identification/depths.csv
-  auxiliary_metadata_filepath: /output/auxiliary_metadata.csv
-  stacking_data_dir: /output/stacking_data
+  train_images_dir: data/raw/train
+  test_images_dir: data/raw/test
+  metadata_filepath: data/meta/metadata.csv
+  depths_filepath: data/meta/depths.csv
+  auxiliary_metadata_filepath: data/meta/auxiliary_metadata.csv
+  stacking_data_dir: data/stacking_data
 
   # Execution
   overwrite: 0
   num_workers: 4
   num_threads: 4
-  kaggle_message: 'solution-6'
+  kaggle_message: 'solution-10'
   image_source: disk
   pin_memory: 1
   loader_mode: resize_and_pad
@@ -53,7 +36,7 @@ parameters:
   # U-Net parameters
   network_output_channels: 2
   network_activation: 'sigmoid'
-  architecture: ResNetWithDepth
+  architecture: UNetResNet # choose an option from models.ARCHITECTURES for example, EmptinessClassifier
   fine_tuning: 0
 
   # U-Net from scratch parameters

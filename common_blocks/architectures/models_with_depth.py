@@ -1,12 +1,9 @@
-import numpy as np
 from torch import nn
 from torch.nn import functional as F
 import torch
-from torchvision import models
-import torchvision
 
 from .base import Conv2dBnRelu, DecoderBlock, DepthChannelExcitation
-from .encoders import ResNetEncoders, SeResNetEncoders
+from .encoders import ResNetEncoders
 
 
 class UNetResNetWithDepth(nn.Module):

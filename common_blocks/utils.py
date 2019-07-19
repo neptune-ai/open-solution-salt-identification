@@ -1,6 +1,5 @@
 import logging
 import os
-import pathlib
 import random
 import sys
 import time
@@ -11,7 +10,6 @@ import gc
 import glob
 import numpy as np
 import pandas as pd
-import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 from attrdict import AttrDict
@@ -27,14 +25,22 @@ from imgaug import augmenters as iaa
 import imgaug as ia
 import torch
 
-NEPTUNE_CONFIG_PATH = str(pathlib.Path(__file__).resolve().parents[1] / 'configs' / 'neptune.yaml')
 logger = get_logger()
 
 
-def read_yaml(fallback_file=NEPTUNE_CONFIG_PATH):
-    with open(fallback_file) as f:
+def read_config(config_path):
+    with open(config_path) as f:
         config = yaml.load(f)
     return AttrDict(config)
+
+
+def check_env_vars():
+    assert os.getenv('NEPTUNE_API_TOKEN'), """You must put your Neptune API token in the \
+NEPTUNE_API_TOKEN env variable. You should run:
+    $ export NEPTUNE_API_TOKEN=your_neptune_api_token"""
+    assert os.getenv('CONFIG_PATH'), """You must specify path to the config file in \
+CONFIG_PATH env variable. For example run:
+    $ export CONFIG_PATH=neptune.yaml"""
 
 
 def init_logger():
