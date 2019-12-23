@@ -4,21 +4,21 @@
 This is an open solution to the [TGS Salt Identification Challenge](https://www.kaggle.com/c/tgs-salt-identification-challenge).
 
 ## More competitions :sparkler:
-Check collection of [public projects :gift:](https://app.neptune.ml/-/explore), where you can find multiple Kaggle competitions with code, experiments and outputs.
+Check collection of [public projects :gift:](https://ui.neptune.ai/-/explore), where you can find multiple Kaggle competitions with code, experiments and outputs.
 
 ## Our goals
 We are building entirely open solution to this competition. Specifically:
 1. **Learning from the process** - updates about new ideas, code and experiments is the best way to learn data science. Our activity is especially useful for people who wants to enter the competition, but lack appropriate experience.
 1. Encourage more Kagglers to start working on this competition.
-1. Deliver open source solution with no strings attached. Code is available on our [GitHub repository :computer:](https://github.com/neptune-ml/open-solution-salt-detection). This solution should establish solid benchmark, as well as provide good base for your custom ideas and experiments. We care about clean code :smiley:
-1. We are opening our experiments as well: everybody can have **live preview** on our experiments, parameters, code, etc. Check: [TGS Salt Identification Challenge :chart_with_upwards_trend:](https://app.neptune.ml/neptune-ml/Salt-Detection) or screen below.
+1. Deliver open source solution with no strings attached. Code is available on our [GitHub repository :computer:](https://github.com/neptune-ai/open-solution-salt-detection). This solution should establish solid benchmark, as well as provide good base for your custom ideas and experiments. We care about clean code :smiley:
+1. We are opening our experiments as well: everybody can have **live preview** on our experiments, parameters, code, etc. Check: [TGS Salt Identification Challenge :chart_with_upwards_trend:](https://ui.neptune.ai/neptune-ai/Salt-Detection) or screen below.
 
 |Train and validation monitor :bar_chart:|
 |:---:|
-|[![training monitor](https://gist.githubusercontent.com/jakubczakon/cac72983726a970690ba7c33708e100b/raw/b45dd02b6643a3805db42ab51a62293a2940c0be/neptune_salt.png)](https://app.neptune.ml/-/dashboard/experiment/3dfce6cf-3031-4e9a-b95c-1ac8b5bb0026)|
+|[![training monitor](https://gist.githubusercontent.com/jakubczakon/cac72983726a970690ba7c33708e100b/raw/b45dd02b6643a3805db42ab51a62293a2940c0be/neptune_salt.png)](https://ui.neptune.ai/-/dashboard/experiment/3dfce6cf-3031-4e9a-b95c-1ac8b5bb0026)|
 
 ## Disclaimer
-In this open source solution you will find references to the [neptune.ml](https://neptune.ml). It is free platform for community Users, which we use daily to keep track of our experiments. Please note that using neptune.ml is not necessary to proceed with this solution. You may run it as plain Python script :snake:.
+In this open source solution you will find references to the [neptune.ai](https://neptune.ai). It is free platform for community Users, which we use daily to keep track of our experiments. Please note that using neptune.ai is not necessary to proceed with this solution. You may run it as plain Python script :snake:.
 
 # How to start?
 ## Learn about our solutions
@@ -27,15 +27,15 @@ In this open source solution you will find references to the [neptune.ml](https:
 
 | Link to Experiments | CV | LB | Open |
 |:---:|:---:|:---:|:---:|
-|[solution 1](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=05e37f9f-c50c-4ba0-8065-92cd74eb9052)|0.413|0.745|True|
-|[solution 2](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=57f36441-f0aa-4071-a05b-eb45fa0648e5)|0.794|0.798|True|
-|[solution 3](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=c92051e6-97b6-40ba-b293-52fba301f9d7)|0.807|0.801|True|
-|[solution 4](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=94881f72-46ad-4c84-829d-39e87c92937f)|0.802|0.809|True|
-|[solution 5](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=60133d85-ab31-4395-b0e9-37deb25ecc94)|0.804|0.813|True|
-|[solution 6](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=ab96e5df-3f1b-4516-9df0-4492e0199c71)|0.819|0.824|True|
-|[solution 7](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=0810785e-ebab-4173-8e9e-8fe560095b77)|0.829|0.837|True|
-|[solution 8](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=bda70048-f037-4c0d-a096-15ea93fd8924)|0.830|0.845|True|
-|[solution 9](https://app.neptune.ml/neptune-ml/Salt-Detection?namedFilterId=c21fc5a2-437a-412f-86e1-078fe31e025d)|0.853|0.849|True|
+|[solution 1](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=05e37f9f-c50c-4ba0-8065-92cd74eb9052)|0.413|0.745|True|
+|[solution 2](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=57f36441-f0aa-4071-a05b-eb45fa0648e5)|0.794|0.798|True|
+|[solution 3](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=c92051e6-97b6-40ba-b293-52fba301f9d7)|0.807|0.801|True|
+|[solution 4](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=94881f72-46ad-4c84-829d-39e87c92937f)|0.802|0.809|True|
+|[solution 5](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=60133d85-ab31-4395-b0e9-37deb25ecc94)|0.804|0.813|True|
+|[solution 6](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=ab96e5df-3f1b-4516-9df0-4492e0199c71)|0.819|0.824|True|
+|[solution 7](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=0810785e-ebab-4173-8e9e-8fe560095b77)|0.829|0.837|True|
+|[solution 8](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=bda70048-f037-4c0d-a096-15ea93fd8924)|0.830|0.845|True|
+|[solution 9](https://ui.neptune.ai/neptune-ai/Salt-Detection?namedFilterId=c21fc5a2-437a-412f-86e1-078fe31e025d)|0.853|0.849|True|
 
 
 ## Start experimenting with ready-to-use code
@@ -72,8 +72,8 @@ conda activate salt
 conda deactivate
 ```
 
-Register to the [neptune.ml](https://neptune.ml) _(if you wish to use it)_ even if you don't register you can still
-see your experiment in Neptune. Just go to [shared/showroom project](https://ui.neptune.ml/o/shared/org/showroom/experiments) and find it.
+Register to the [neptune.ai](https://neptune.ai) _(if you wish to use it)_ even if you don't register you can still
+see your experiment in Neptune. Just go to [shared/showroom project](https://ui.neptune.ai/o/shared/org/showroom/experiments) and find it.
 
 Set environment variables `NEPTUNE_API_TOKEN` and `CONFIG_PATH`.
 
@@ -196,7 +196,7 @@ year = {2018}
 
 ## Get involved
 You are welcome to contribute your code and ideas to this open solution. To get started:
-1. Check [competition project](https://github.com/neptune-ml/open-solution-salt-detection/projects/1) on GitHub to see what we are working on right now.
+1. Check [competition project](https://github.com/neptune-ai/open-solution-salt-detection/projects/1) on GitHub to see what we are working on right now.
 1. Express your interest in paticular task by writing comment in this task, or by creating new one with your fresh idea.
 1. We will get back to you quickly in order to start working together.
 1. Check [CONTRIBUTING](CONTRIBUTING.md) for some more information.
