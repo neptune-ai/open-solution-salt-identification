@@ -3,6 +3,9 @@
 
 This is an open solution to the [TGS Salt Identification Challenge](https://www.kaggle.com/c/tgs-salt-identification-challenge).
 
+# Note
+**Unfortunately, we can no longer provide support for this repo. Hopefully, it should still work, but if it doesn't, we cannot really help.** 
+
 ## More competitions :sparkler:
 Check collection of [public projects :gift:](https://ui.neptune.ai/-/explore), where you can find multiple Kaggle competitions with code, experiments and outputs.
 
